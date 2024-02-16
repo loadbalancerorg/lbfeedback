@@ -14,7 +14,7 @@ The Loadbalancer.org Feedback Agent v3 is cross-platform and concurrent, written
 Last Updated: 2024-02-16 17:42 - v3.1.6-alpha
 - There are loads of places in this code which require general cleanup which I (NT) am fully aware of - please pardon the temporary issues with this.
 - There is a lack of validation on the JSON data fields for service ports, paths, names, etc. Whilst these will result in handled errors, the result will not be particularly graceful.
-- TCP mode feedback is currently removed from the Feedback Responder service due to an issue with ldirectord hanging until a TCP RST occurs on the connection.
+- TCP mode feedback is currently removed from the Feedback Responder service due to an issue with ldirectord hanging until a TCP FIN occurs on the connection.
 - The Custom Script metric will currently result in an error if a non-zero exit status is returned under both Linux and Windows.
 - Refactoring: The CreateMonitor() and CreateResponder() functions within FeedbackAgent (core/feedback.go) need to be moved into FeedbackResponder and SystemMonitor respectively as constructors, since that is where they more properly belong.
 - The platform_windows.go file (containing the system hooks for Windows environments) is currently missing as this needs to be reworked.
