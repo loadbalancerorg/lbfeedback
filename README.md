@@ -18,6 +18,7 @@ Last Updated: 2024-02-16 17:42 - v3.1.6-alpha
 - The Custom Script metric will currently result in an error if a non-zero exit status is returned under both Linux and Windows.
 - Refactoring: The CreateMonitor() and CreateResponder() functions within FeedbackAgent (core/feedback.go) need to be moved into FeedbackResponder and SystemMonitor respectively as constructors, since that is where they more properly belong.
 - The platform_windows.go file (containing the system hooks for Windows environments) is currently missing as this needs to be reworked.
+- The binary will compile under equally both x86-64 and arm64 target architectures without unexpected issues. However, compilation fails on x86-32 system targets due to the reliance on int64/float64 throughout the code. I believe this may well be a sensible "won't fix" aspect of the v3 Feedback Agent, but we first need to identify if there is a need for a 32-bit compatible version before putting any work into this.
 
 # Release Notes
 
