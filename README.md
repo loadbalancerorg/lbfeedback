@@ -10,8 +10,11 @@ The Loadbalancer.org Feedback Agent v3 is cross-platform and concurrent, written
 # Authors
 - Developer: Nicholas Turnbull <nicholas.turnbull@loadbalancer.org>
 
-# To Do/Known Issues
-Last Updated: 2024-02-16 17:42 - v3.1.6-alpha
+# Release Notes, Known Issues and To Do
+
+## v3.1.6-alpha (2024-02-16)
+- This is a very early alpha release for initial testing internally within Loadbalancer.org.
+- Only the POSIX platform target (Linux, FreeBSD, NetBSD, OpenBSD and Darwin) is supported in this release as further work needs to be done on the Windows platform target.
 - There are loads of places in this code which require general cleanup which I (NT) am fully aware of - please pardon the temporary issues with this.
 - There is a lack of validation on the JSON data fields for service ports, paths, names, etc. Whilst these will result in handled errors, the result will not be particularly graceful.
 - TCP mode feedback is currently removed from the Feedback Responder service due to an issue with ldirectord hanging until a TCP FIN occurs on the connection.
@@ -19,9 +22,4 @@ Last Updated: 2024-02-16 17:42 - v3.1.6-alpha
 - Refactoring: The CreateMonitor() and CreateResponder() functions within FeedbackAgent (core/feedback.go) need to be moved into FeedbackResponder and SystemMonitor respectively as constructors, since that is where they more properly belong.
 - The platform_windows.go file (containing the system hooks for Windows environments) is currently missing as this needs to be reworked.
 - The binary will compile and run under both x86-64 and arm64 target architectures without unexpected issues. However, compilation fails on x86-32 system targets due to the reliance on int64/float64 throughout the code. I believe this may well be a sensible "won't fix" aspect of the v3 Feedback Agent, but we first need to identify if there is a need for a 32-bit compatible version before putting any work into this.
-
-# Release Notes
-
-## v3.1.6-alpha (2024-02-16)
-- This is a very early alpha release for initial testing internally within Loadbalancer.org.
-- - Only the POSIX platform target (Linux, FreeBSD, NetBSD, OpenBSD and Darwin) is supported in this release as further work needs to be done on the Windows platform target.
+- ARM Cortex-X2, A710, A510: The gopsutil library used in this project does not report CPU utilisation meaningfully when running on mixed-core ARM Cortex-A mobile processors that contain "efficiency" cores alongside faster "prime" and "performance" cores. This is likely because the percentage utilisation does not take into account the difference in clock speed and therefore it doesn't correctly reflect resource utilisation. This causes the reported CPU usage to be consistently low irrespective of system load. The "android" build target is therefore not included in platform_posix.go at this time. (Discovered on Qualcomm Snapdragon 8+ Gen 1 under Android.)
