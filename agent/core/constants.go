@@ -23,7 +23,7 @@
 package agent
 
 const (
-	VersionString          = "3.1.6-alpha"
+	VersionString          = "5.1.6-alpha"
 	ServerProtocolHTTP     = "http"
 	ServerProtocolTCP      = "tcp"
 	MetricTypeCPU          = "cpu"
