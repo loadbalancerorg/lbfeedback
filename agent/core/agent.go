@@ -245,7 +245,7 @@ func (agent *FeedbackAgent) setDefaultServiceConfig() {
 	agent.clearServices()
 	logrus.Info("Setting default service configuration.")
 	agent.createMonitor("mon1", "cpu", 100, "")
-	agent.createResponder("res1", "mon1", "http", 3333)
+	agent.createResponder("res1", "mon1", "tcp", 3333)
 	logrus.Info("Default configuration set.")
 }
 

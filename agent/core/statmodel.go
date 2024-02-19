@@ -100,7 +100,7 @@ type StatisticsModel struct {
 
 const (
 	DefaultXCountLimit         = 0x100000000
-	DefaultWeightCeiling       = 100
+	DefaultWeightCeiling       = 99
 	DefaultWeightFloor         = 0
 	DefaultWeightScalingFactor = 1.0
 	DefaultZMeanThreshold      = 1.0

@@ -26,6 +26,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -45,6 +46,7 @@ type FeedbackResponder struct {
 	ResponseTimeout     time.Duration  `json:"-"`
 	LastError           error          `json:"-"`
 	httpServer          *http.Server   `json:"-"`
+	tcpListener         net.Listener   `json:"-"`
 	isRunning           bool           `json:"-"`
 	mutex               sync.Mutex     `json:"-"`
 }
@@ -78,22 +80,27 @@ func (fbr *FeedbackResponder) Start() error {
 func (fbr *FeedbackResponder) run() {
 	fbr.mutex.Lock()
 	defer fbr.mutex.Unlock()
+	var err error
 	if !fbr.isRunning {
 		fbr.isRunning = true
+		fbr.mutex.Unlock()
 		switch fbr.ProtocolName {
 		case ServerProtocolHTTP:
-			fbr.listenHTTP()
-		// $$ Temporarily removed due to ldirectord issue
-		//case ServerProtocolTCP:
-		//	fbr.httpServer = nil
-		//	fbr.listenTCP()
+			err = fbr.listenHTTP()
+		case ServerProtocolTCP:
+			fbr.httpServer = nil
+			err = fbr.listenTCP()
 		default:
-			fbr.LastError = errors.New("invalid protocol '" +
+			err = errors.New("invalid protocol '" +
 				fbr.ProtocolName + "' specified")
 		}
+		fbr.mutex.Lock()
 		logrus.Info(fbr.getLogHead() + "has now stopped.")
 	} else {
-		fbr.LastError = errors.New("responder is already running")
+		err = errors.New("responder is already running")
+	}
+	if err != nil {
+		fbr.LastError = err
 	}
 }
 
@@ -101,43 +108,74 @@ func (fbr *FeedbackResponder) getLogHead() string {
 	return "Feedback Responder '" + fbr.Name + "' "
 }
 
-func (fbr *FeedbackResponder) listenHTTP() {
-	fbr.httpServer = &http.Server{
-		Addr:         ":" + strconv.Itoa(fbr.ListenPort),
-		Handler:      http.HandlerFunc(fbr.HTTPHandler),
-		ReadTimeout:  fbr.RequestTimeout,
-		WriteTimeout: fbr.ResponseTimeout,
-	}
-	fbr.mutex.Unlock()
-	// ListenAndServe() will block here until the server returns an
-	// error. As we have unlocked the mutex, Stop() will be able to
-	// call the method on the HTTP server to tell it to stop.
-	fbr.LastError = fbr.httpServer.ListenAndServe()
-	fbr.mutex.Lock()
-}
-
-func (fbr *FeedbackResponder) Stop() {
+func (fbr *FeedbackResponder) Stop() (err error) {
 	// Lock the mutex and always unlock when we're finished.
 	fbr.mutex.Lock()
 	defer fbr.mutex.Unlock()
+	logrus.Info("Attempting to stop " + fbr.getLogHead())
 	if fbr.isRunning {
+		fbr.isRunning = false
 		if fbr.httpServer != nil {
 			// This will unblock listenHTTP() as the server will then
 			// return an error having stopped.
-			fbr.LastError = fbr.httpServer.Shutdown(context.Background())
+			err = fbr.httpServer.Shutdown(context.Background())
+		}
+		if fbr.tcpListener != nil {
+			// This will unblock listenTCP() as the listener will then
+			// return an error having stopped.
+			err = fbr.tcpListener.Close()
 		}
 	}
+	return
 }
 
-func (fbr *FeedbackResponder) HTTPHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, "%d", fbr.SourceMonitorThread.StatsModel.GetWeightScore())
+func (fbr *FeedbackResponder) getFeedbackString() string {
+	return fmt.Sprintf("%d%%\n", fbr.SourceMonitorThread.
+		StatsModel.GetWeightScore())
 }
 
-/*
-func (fbr *FeedbackResponder) listenTCP() {
-	// $$ TEMPORARILY REMOVED - ldirectord issue, as discussed with dsaunders
+func (fbr *FeedbackResponder) listenHTTP() (err error) {
+	fbr.httpServer = &http.Server{
+		Addr:         ":" + strconv.Itoa(fbr.ListenPort),
+		Handler:      http.HandlerFunc(fbr.handleHTTP),
+		ReadTimeout:  fbr.RequestTimeout,
+		WriteTimeout: fbr.ResponseTimeout,
+	}
+	// ListenAndServe() will block here until the server returns an
+	// error. As we have unlocked the mutex, Stop() will be able to
+	// call the method on the HTTP server to tell it to stop.
+	err = fbr.httpServer.ListenAndServe()
+	return
 }
-*/
+
+func (fbr *FeedbackResponder) handleHTTP(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprintf(w, "%s", fbr.getFeedbackString())
+}
+
+func (fbr *FeedbackResponder) listenTCP() (err error) {
+	fbr.tcpListener, err = net.Listen("tcp4", ":"+fmt.Sprint(fbr.ListenPort))
+	if err != nil {
+		return
+	}
+	var conn net.Conn
+
+	for err == nil {
+		// Accept() will block here until the listener is closed.
+		conn, err = fbr.tcpListener.Accept()
+		if conn != nil {
+			go fbr.handleTCP(conn)
+		}
+	}
+	return
+}
+
+func (fbr *FeedbackResponder) handleTCP(c net.Conn) {
+	fmt.Fprintf(c, "%s", fbr.getFeedbackString())
+	// Always force-close the connection after returning the feedback value.
+	// This is to cope with an issue with ldirectord which will hang until the
+	// connection is closed from the server
+	c.Close()
+}
 
 // -------------------------------------------------------------------
 // END OF FILE
