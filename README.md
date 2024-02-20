@@ -10,7 +10,30 @@ The Loadbalancer.org Feedback Agent v5 is cross-platform and concurrent, written
 # Authors
 - Developer: Nicholas Turnbull <nicholas.turnbull@loadbalancer.org>
 
+# Rough notes for testing the alpha
+*Please accept my sincerest apologies for the brevity of these notes, which I will update as time permits. -- NT*
+- Download the most recent version of the alpha from the binaries/ directory of this repository for the target platform and decompress it somewhere convenient.
+- It does not matter where the binary is placed, as it will run from any directory. However, in order to write its logs and configuration files, it must be run with root permissions.
+- The binary is designed to be dependency-free irrespective of the platform build target; all required libraries should be compiled in.
+## Linux x86_64
+- For testing purposes, the easiest way to see its output and to terminate it if required is to run the Agent interactively on the shell: `sudo ./lbfeedback`
+- It can also be run via Upstart or simply sent to the background with `sudo nohup ./lbfeedback &` if desired.
+- The service handles signals correctly and will gracefully terminate with a SIGINT, as well as restarting on SIGHUP.
+- The Agent creates its own log path and log at: `/var/log/loadbalancer.org/lbfeedback/agent.log`
+- The Agent creates its own JSON configuration path and default file if they do not exist: `/etc/loadbalancer.org/lbfeedback/agent-config.json`. It will create a default configuration of a CPU monitor listening on TCP port 3333 if no configuration exists.
+- Please review and edit the above file to play with the configuration settings; the format should be fairly self-explanatory. An arbitrary number of multiple Monitors and Responders may be defined. The "input-monitor" JSON field tells a Responder which Monitor to get its data from.
+- Supported Responder types are "http" and "tcp".
+- Supported Monitor types are "cpu", "ram" and "script".
+- If using the "script" monitor type in the JSON config, you will also need to set "script-name" for the monitor to the filename only (not the full path) and place this file in `/etc/loadbalancer.org/lbfeedback`. The script must output a load value between 0-100 (the inverse of the reported feedback weight from the Agent) to STDOUT, not the exit status. An exit status other than 0 will result in an error stating that the feedback script failed to run.
+
 # Release Notes, Known Issues and To Do
+
+## v5.1.8-alpha (2024-02-20)
+- Numerous bug fixes; refactoring to SystemMonitor and FeedbackResponder services.
+- TCP Mode is now available again and is the default feedback mode.
+- Known Issue: The JSON config needs decoupling from the object types in the code as it has ended up duplicating fields so that it ends up in a usable format.
+- First Agent release ready for initial testing.
+- The Configuration Tool is still in progress and will be released for alpha testing as it is available.
 
 ## v5.1.6-alpha (2024-02-16)
 - This is a very early alpha release for initial testing internally within Loadbalancer.org.
