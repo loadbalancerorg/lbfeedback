@@ -1,6 +1,6 @@
 // agent.go
 // Feedback Agent Service
-// Project:		Loadbalancer.org Feedback Agent v3
+// Project:		Loadbalancer.org Feedback Agent v5
 // Author: 		Nicholas Turnbull
 //				<nicholas.turnbull@loadbalancer.org>
 //
@@ -38,7 +38,6 @@ import (
 // general utility functions for the project.
 type FeedbackAgent struct {
 	LogDir        string                        `json:"log-dir"`
-	CPUSampleTime uint64                        `json:"cpu-sample-time"`
 	Monitors      map[string]*SystemMonitor     `json:"monitors"`
 	Responders    map[string]*FeedbackResponder `json:"responders"`
 	ConfigDir     string                        `json:"-"`
@@ -111,10 +110,10 @@ func (agent *FeedbackAgent) loadAndStart() (err error) {
 		}
 	}
 	for _, responder := range agent.Responders {
-		err = responder.Start()
+		err = responder.StartService()
 		if err != nil {
 			logrus.Error("Error initialising responder '" +
-				responder.Name + "': " + err.Error())
+				responder.ResponderName + "': " + err.Error())
 			return
 		}
 	}
@@ -126,7 +125,7 @@ func (agent *FeedbackAgent) loadAndStart() (err error) {
 func (agent *FeedbackAgent) stopServices() {
 	logrus.Info("Stopping all Feedback Agent services.")
 	for _, responder := range agent.Responders {
-		responder.Stop()
+		responder.StopService()
 	}
 	for _, monitor := range agent.Monitors {
 		monitor.Stop()
@@ -244,8 +243,8 @@ func CreateDirectoryIfMissing(dir string) (err error) {
 func (agent *FeedbackAgent) setDefaultServiceConfig() {
 	agent.clearServices()
 	logrus.Info("Setting default service configuration.")
-	agent.createMonitor("mon1", "cpu", 100, "")
-	agent.createResponder("res1", "mon1", "tcp", 3333)
+	agent.addMonitor("mon1", "cpu", 100, "", 50)
+	agent.addResponder("res1", "mon1", "tcp", 3333)
 	logrus.Info("Default configuration set.")
 }
 
@@ -320,11 +319,12 @@ func (agent *FeedbackAgent) configureFileLogging(dir string) (err error) {
 func (agent *FeedbackAgent) populateServices(parsed *FeedbackAgent) (err error) {
 	// Create monitors from the parsed config.
 	for name, monitor := range parsed.Monitors {
-		err = agent.createMonitor(
+		err = agent.addMonitor(
 			name,
 			monitor.MetricType,
 			monitor.PollInterval,
 			monitor.ScriptFileName,
+			monitor.SampleTime,
 		)
 		if err != nil {
 			return
@@ -332,7 +332,7 @@ func (agent *FeedbackAgent) populateServices(parsed *FeedbackAgent) (err error) 
 	}
 	// Create responders from the parsed config.
 	for name, responder := range parsed.Responders {
-		err = agent.createResponder(
+		err = agent.addResponder(
 			name,
 			responder.SourceMonitorName,
 			responder.ProtocolName,
@@ -346,60 +346,51 @@ func (agent *FeedbackAgent) populateServices(parsed *FeedbackAgent) (err error) 
 }
 
 // Creates a new Monitor and returns an error if it already exists.
-func (agent *FeedbackAgent) createMonitor(name string, metric string,
-	interval int, script string) (err error) {
+func (agent *FeedbackAgent) addMonitor(name string, metric string,
+	interval int, script string, sampleTime uint64) (err error) {
 	_, nameExists := agent.Monitors[name]
-	if !nameExists {
-		// Create a new model with default settings
-		// $$ TO DO: Validate JSON configuration.
-		model := &StatisticsModel{}
-		model.SetDefaultParams()
-		// $ TO DO: Error handling if the script doesn't exist, etc.
-		scriptPath := ""
-		if metric == MetricTypeScript {
-			scriptPath = filepath.Join(agent.ConfigDir, script)
-		}
-		monitor := &SystemMonitor{
-			MetricType:     metric,
-			PollInterval:   interval,
-			StatsModel:     model,
-			Name:           name,
-			ScriptFileName: script,
-			scriptFullPath: scriptPath,
-		}
-		agent.Monitors[name] = monitor
-	} else {
+	if nameExists {
 		err = errors.New("cannot create monitor '" + name +
 			"': name already exists")
+		return
 	}
+	var monitor *SystemMonitor
+	monitor, err = NewSystemMonitor(name, metric, interval,
+		sampleTime, script, agent.ConfigDir)
+	if err != nil {
+		err = errors.New("failed to create monitor '" + name +
+			"': " + err.Error())
+		return
+	}
+	agent.Monitors[name] = monitor
 	return
 }
 
 // Creates a Responder associated with a given Monitor, returning an
 // error if the Monitor does not exist.
-func (agent *FeedbackAgent) createResponder(name string, monitorName string,
+func (agent *FeedbackAgent) addResponder(name string, monitorName string,
 	protocol string, port int) (err error) {
 	_, nameExists := agent.Responders[name]
-	if !nameExists {
-		monitor, monitorExists := agent.Monitors[monitorName]
-		if monitorExists {
-			responder := &FeedbackResponder{
-				ProtocolName:        protocol,
-				ListenPort:          port,
-				SourceMonitorThread: monitor,
-				Name:                name,
-				SourceMonitorName:   monitorName,
-			}
-			agent.Responders[name] = responder
-		} else {
-			err = errors.New("cannot create responder '" + name +
-				"': assigned monitor '" + monitorName +
-				"' does not exist")
-		}
-	} else {
+	if nameExists {
 		err = errors.New("cannot create responder '" + name +
 			"': name already exists")
+		return
 	}
+	monitor, monitorExists := agent.Monitors[monitorName]
+	if !monitorExists {
+		err = errors.New("cannot create responder '" + name +
+			"': assigned monitor '" + monitorName +
+			"' does not exist")
+		return
+	}
+	var responder *FeedbackResponder
+	responder, err = NewResponder(name, monitor, protocol, port)
+	if err != nil {
+		err = errors.New("cannot create responder '" + name +
+			"': " + err.Error())
+		return
+	}
+	agent.Responders[name] = responder
 	return
 }
 

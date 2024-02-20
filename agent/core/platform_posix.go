@@ -4,7 +4,7 @@
 // platform_posix.go
 // Platform-Specific Code - POSIX Operating Systems
 //
-// Project:		Loadbalancer.org Feedback Agent v3
+// Project:		Loadbalancer.org Feedback Agent v5
 // Author: 		Nicholas Turnbull
 //				<nicholas.turnbull@loadbalancer.org>
 //

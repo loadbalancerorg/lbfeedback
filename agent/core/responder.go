@@ -1,7 +1,7 @@
 // responder.go
-// Feedback HTTP/TCP Responder
+// Feedback Responder Service
 //
-// Project:		Loadbalancer.org Feedback Agent v3
+// Project:		Loadbalancer.org Feedback Agent v5
 // Author: 		Nicholas Turnbull
 //				<nicholas.turnbull@loadbalancer.org>
 //
@@ -23,11 +23,8 @@
 package agent
 
 import (
-	"context"
 	"errors"
 	"fmt"
-	"net"
-	"net/http"
 	"strconv"
 	"strings"
 	"sync"
@@ -36,31 +33,68 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// #######################################################################
+// FeedbackResponder
+// #######################################################################
+
+// [FeedbackResponder] implements a Feedback Responder service which uses
+// the specified [ProtocolConnector] to listen for and respond to clients
+// from data obtained via the associated [SystemMonitor].
 type FeedbackResponder struct {
-	Name                string         `json:"-"`
-	SourceMonitorName   string         `json:"input-monitor"`
-	SourceMonitorThread *SystemMonitor `json:"-"`
-	ProtocolName        string         `json:"protocol"`
-	ListenPort          int            `json:"port"`
-	RequestTimeout      time.Duration  `json:"-"`
-	ResponseTimeout     time.Duration  `json:"-"`
-	LastError           error          `json:"-"`
-	httpServer          *http.Server   `json:"-"`
-	tcpListener         net.Listener   `json:"-"`
-	isRunning           bool           `json:"-"`
-	mutex               sync.Mutex     `json:"-"`
+	ResponderName       string            `json:"-"`
+	SourceMonitorName   string            `json:"input-monitor"`
+	SourceMonitorThread *SystemMonitor    `json:"-"`
+	ProtocolName        string            `json:"protocol"`
+	Connector           ProtocolConnector `json:"-"`
+	ListenPort          int               `json:"port"`
+	RequestTimeout      time.Duration     `json:"-"`
+	ResponseTimeout     time.Duration     `json:"-"`
+	LastError           error             `json:"-"`
+	isRunning           bool              `json:"-"`
+	mutex               sync.Mutex        `json:"-"`
 }
 
-func (fbr *FeedbackResponder) Start() error {
+// Constructor for [FeedbackResponder], which must be used when creating
+// a new responder object.
+func NewResponder(name string, monitor *SystemMonitor,
+	protocol string, port int) (fbr *FeedbackResponder, err error) {
+	if monitor == nil {
+		err = errors.New("cannot create responder: no monitor specified")
+		return
+	}
+	// Create a generic responder containing the base settings.
+	fbr = &FeedbackResponder{
+		ProtocolName:        protocol,
+		ListenPort:          port,
+		SourceMonitorThread: monitor,
+		ResponderName:       name,
+		SourceMonitorName:   monitor.Name,
+	}
+	switch protocol {
+	case ServerProtocolHTTP:
+		fbr.Connector = &HTTPConnector{}
+	case ServerProtocolTCP:
+		fbr.Connector = &TCPConnector{}
+	default:
+		err = errors.New("cannot create responder: invalid protocol '" +
+			protocol + "' specified")
+		fbr = nil
+	}
+	return
+}
+
+// Starts the Feedback Agent service, returning an error in the event
+// of failure, by launching the main code of the service as a goroutine.
+func (fbr *FeedbackResponder) StartService() (err error) {
 	fbr.mutex.Lock()
 	defer fbr.mutex.Unlock()
 	if !fbr.isRunning {
 		// Launch the goroutine whilst the mutex is still locked.
-		go fbr.run()
-		// Unlock the mutex to unblock the run() function.
+		go fbr.goroutine()
+		// Unlock the mutex to unblock the goroutine() function.
 		fbr.mutex.Unlock()
-		// Use the mutex to block here until run() has either initialised
-		// or failed so we can return the error result.
+		// Use the mutex to block here until goroutine() has either
+		// initialised or failed so we can return the error result.
 		fbr.mutex.Lock()
 
 	} else {
@@ -74,26 +108,34 @@ func (fbr *FeedbackResponder) Start() error {
 	} else {
 		logLine += "failed, error: " + fbr.LastError.Error()
 	}
-	return fbr.LastError
+	err = fbr.LastError
+	return
 }
 
-func (fbr *FeedbackResponder) run() {
+// Stops the service from running.
+func (fbr *FeedbackResponder) StopService() (err error) {
+	// Lock the mutex and always unlock when we're finished.
+	fbr.mutex.Lock()
+	defer fbr.mutex.Unlock()
+	if fbr.isRunning {
+		fbr.isRunning = false
+		err = fbr.Connector.Close()
+	}
+	return
+}
+
+// The goroutine function to call when the service starts; e.g.
+// the worker thread.
+func (fbr *FeedbackResponder) goroutine() {
 	fbr.mutex.Lock()
 	defer fbr.mutex.Unlock()
 	var err error
 	if !fbr.isRunning {
 		fbr.isRunning = true
 		fbr.mutex.Unlock()
-		switch fbr.ProtocolName {
-		case ServerProtocolHTTP:
-			err = fbr.listenHTTP()
-		case ServerProtocolTCP:
-			fbr.httpServer = nil
-			err = fbr.listenTCP()
-		default:
-			err = errors.New("invalid protocol '" +
-				fbr.ProtocolName + "' specified")
-		}
+		// Call the Listen() method of the protocol connector, which
+		// will block here until it quits.
+		err = fbr.Connector.Listen(fbr)
 		fbr.mutex.Lock()
 		logrus.Info(fbr.getLogHead() + "has now stopped.")
 	} else {
@@ -105,76 +147,12 @@ func (fbr *FeedbackResponder) run() {
 }
 
 func (fbr *FeedbackResponder) getLogHead() string {
-	return "Feedback Responder '" + fbr.Name + "' "
-}
-
-func (fbr *FeedbackResponder) Stop() (err error) {
-	// Lock the mutex and always unlock when we're finished.
-	fbr.mutex.Lock()
-	defer fbr.mutex.Unlock()
-	logrus.Info("Attempting to stop " + fbr.getLogHead())
-	if fbr.isRunning {
-		fbr.isRunning = false
-		if fbr.httpServer != nil {
-			// This will unblock listenHTTP() as the server will then
-			// return an error having stopped.
-			err = fbr.httpServer.Shutdown(context.Background())
-		}
-		if fbr.tcpListener != nil {
-			// This will unblock listenTCP() as the listener will then
-			// return an error having stopped.
-			err = fbr.tcpListener.Close()
-		}
-	}
-	return
+	return "Feedback Responder '" + fbr.ResponderName + "' "
 }
 
 func (fbr *FeedbackResponder) getFeedbackString() string {
 	return fmt.Sprintf("%d%%\n", fbr.SourceMonitorThread.
 		StatsModel.GetWeightScore())
-}
-
-func (fbr *FeedbackResponder) listenHTTP() (err error) {
-	fbr.httpServer = &http.Server{
-		Addr:         ":" + strconv.Itoa(fbr.ListenPort),
-		Handler:      http.HandlerFunc(fbr.handleHTTP),
-		ReadTimeout:  fbr.RequestTimeout,
-		WriteTimeout: fbr.ResponseTimeout,
-	}
-	// ListenAndServe() will block here until the server returns an
-	// error. As we have unlocked the mutex, Stop() will be able to
-	// call the method on the HTTP server to tell it to stop.
-	err = fbr.httpServer.ListenAndServe()
-	return
-}
-
-func (fbr *FeedbackResponder) handleHTTP(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, "%s", fbr.getFeedbackString())
-}
-
-func (fbr *FeedbackResponder) listenTCP() (err error) {
-	fbr.tcpListener, err = net.Listen("tcp4", ":"+fmt.Sprint(fbr.ListenPort))
-	if err != nil {
-		return
-	}
-	var conn net.Conn
-
-	for err == nil {
-		// Accept() will block here until the listener is closed.
-		conn, err = fbr.tcpListener.Accept()
-		if conn != nil {
-			go fbr.handleTCP(conn)
-		}
-	}
-	return
-}
-
-func (fbr *FeedbackResponder) handleTCP(c net.Conn) {
-	fmt.Fprintf(c, "%s", fbr.getFeedbackString())
-	// Always force-close the connection after returning the feedback value.
-	// This is to cope with an issue with ldirectord which will hang until the
-	// connection is closed from the server
-	c.Close()
 }
 
 // -------------------------------------------------------------------

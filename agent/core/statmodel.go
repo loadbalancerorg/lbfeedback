@@ -1,7 +1,7 @@
 // statmodel.go
 // Feedback Agent Statistics Model
 //
-// Project:		Loadbalancer.org Feedback Agent v3
+// Project:		Loadbalancer.org Feedback Agent v5
 // Author: 		Nicholas Turnbull
 //				<nicholas.turnbull@loadbalancer.org>
 // Revision:	1049 (2024-02-15)

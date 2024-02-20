@@ -1,10 +1,8 @@
 // sysmon.go
 // Feedback Agent System Monitor
 //
-// Project:		Loadbalancer.org Feedback Agent v3
+// Project:		Loadbalancer.org Feedback Agent v5
 // Author: 		Nicholas Turnbull <nicholas.turnbull@loadbalancer.org>
-//
-// Revision:	1049 (2024-02-15)
 //
 // Copyright (C) 2024 Loadbalancer.org Ltd
 //
@@ -25,13 +23,12 @@ package agent
 
 import (
 	"errors"
+	"path"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/shirou/gopsutil/v3/cpu"
-	"github.com/shirou/gopsutil/v3/mem"
 	"github.com/sirupsen/logrus"
 )
 
@@ -40,17 +37,60 @@ import (
 // to a [StatisticsModel] for cumulative calculation into relative feedback
 // weights.
 type SystemMonitor struct {
-	Name           string           `json:"-"`
-	MetricType     string           `json:"type"`
-	ScriptFileName string           `json:"script-name,omitempty"`
-	scriptFullPath string           `json:"-"`
-	StatsModel     *StatisticsModel `json:"-"`
-	PollInterval   int              `json:"interval-ms"`
-	SampleTime     uint64           `json:"-"`
-	LastError      error            `json:"-"`
-	signal         chan int         `json:"-"`
-	isRunning      bool             `json:"-"`
-	mutex          sync.Mutex       `json:"-"`
+	// JSON configuration fields; even those these are duplicated
+	// within other types, they are here purely for loading/saving
+	// the config structure and not for the main service logic.
+
+	// $ TO DO: There are places in the code which still refer to these
+	// outside of the context of the JSON config that need repointing
+	// to the SystemMetric object.
+	MetricType     string `json:"type"`
+	ScriptFileName string `json:"script-name,omitempty"`
+	PollInterval   int    `json:"interval-ms"`
+	SampleTime     uint64 `json:"sample-ms"`
+
+	// The actual type fields that we're working with.
+	Name       string           `json:"-"`
+	SysMetric  SystemMetric     `json:"-"`
+	StatsModel *StatisticsModel `json:"-"`
+	LastError  error            `json:"-"`
+	signal     chan int         `json:"-"`
+	isRunning  bool             `json:"-"`
+	mutex      sync.Mutex       `json:"-"`
+}
+
+func NewSystemMonitor(name string, metric string,
+	interval int, sampleTime uint64, scriptName string,
+	scriptDir string) (mon *SystemMonitor, err error) {
+	var sysmetric SystemMetric
+	switch metric {
+	case MetricTypeCPU:
+		sysmetric = &CPUMetric{
+			SampleTime: sampleTime,
+		}
+	case MetricTypeRAM:
+		sysmetric = &MemoryMetric{}
+	case MetricTypeScript:
+		sysmetric = &ScriptMetric{
+			scriptFullPath: path.Join(scriptDir, scriptName),
+		}
+	default:
+		err = errors.New("unrecognised metric type: '" + metric + "'")
+		return
+	}
+	mon = &SystemMonitor{
+		Name:           name,
+		SampleTime:     sampleTime,
+		ScriptFileName: scriptName,
+		PollInterval:   interval,
+		SysMetric:      sysmetric,
+		MetricType:     sysmetric.MetricName(),
+		StatsModel:     &StatisticsModel{},
+	}
+	// $ TO DO: Provide configurability for the stats model.
+	mon.StatsModel.SetDefaultParams()
+
+	return
 }
 
 // Launches this [SystemMonitor] as a goroutine, returning any errors that
@@ -156,17 +196,8 @@ func (monitor *SystemMonitor) getLogHead() string {
 
 // Gets a sample from the metric that this thread is measuring.
 func (monitor *SystemMonitor) getMetricSample() (value float64, err error) {
-	switch monitor.MetricType {
-	case MetricTypeCPU:
-		value, err = monitor.getCPUValue()
-	case MetricTypeRAM:
-		value, err = monitor.getMemoryValue()
-	case MetricTypeScript:
-		value, err = monitor.getShellValue()
-	default:
-		err = errors.New("invalid metric type")
-	}
-	return value, err
+	value, err = monitor.SysMetric.GetLoad()
+	return
 }
 
 // Returns the current feedback weight for this monitor thread.
@@ -175,60 +206,6 @@ func (monitor *SystemMonitor) CurrentWeight() (result int64) {
 	result = monitor.StatsModel.GetWeightScore()
 	monitor.mutex.Unlock()
 	return result
-}
-
-// Returns the current CPU metric for the host system.
-func (monitor *SystemMonitor) getCPUValue() (float64, error) {
-	// Force a minimum sampling time of at least 1000ms for scripts
-	// and 500ms for CPU or RAM metrics
-	if monitor.MetricType != MetricTypeScript &&
-		monitor.SampleTime < 1000 {
-		monitor.SampleTime = 1000
-	} else if monitor.SampleTime < 500 {
-		monitor.SampleTime = 500
-	}
-	// Whilst the docs for gopsutil indicate that passing "false"
-	// to the cpu.Percent() function should result in an overall
-	// utilisation figure, it in fact seems to only reflect the
-	// first core under Windows. To ensure compatibility, we
-	// average this ourselves from the percentages returned.
-	corePercentages, error := cpu.Percent(time.Duration(
-		monitor.SampleTime*uint64(time.Millisecond)), true)
-	if error == nil {
-		return calculateArrayMean(corePercentages), error
-	} else {
-		return 0.0, error
-	}
-}
-
-// Returns the current memory metric for the host system.
-func (monitor *SystemMonitor) getMemoryValue() (float64, error) {
-	vmem, error := mem.VirtualMemory()
-	return float64(vmem.UsedPercent), error
-}
-
-func (monitor *SystemMonitor) getShellValue() (val float64, err error) {
-	var output string
-	output, err = PlatformExecuteScript(monitor.scriptFullPath)
-	if err == nil {
-		output = strings.TrimSpace(output)
-		var parsedInt float64
-		parsedInt, err = strconv.ParseFloat(output, 64)
-		val = float64(parsedInt)
-		if err != nil {
-			val = float64(monitor.StatsModel.WeightCeiling)
-		}
-	}
-	return
-}
-
-// Calculates the mean of an array of float64 values.
-func calculateArrayMean(values []float64) float64 {
-	var total float64
-	for i := 1; i < len(values); i++ {
-		total += values[i]
-	}
-	return float64(total / float64(len(values)))
 }
 
 // -------------------------------------------------------------------

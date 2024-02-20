@@ -1,7 +1,7 @@
 // constants.go
 // Feedback Agent - Project Constants
 //
-// Project:		Loadbalancer.org Feedback Agent v3
+// Project:		Loadbalancer.org Feedback Agent v5
 // Author: 		Nicholas Turnbull
 //				<nicholas.turnbull@loadbalancer.org>
 //
@@ -23,7 +23,7 @@
 package agent
 
 const (
-	VersionString          = "5.1.7-alpha"
+	VersionString          = "5.1.8-alpha"
 	ServerProtocolHTTP     = "http"
 	ServerProtocolTCP      = "tcp"
 	MetricTypeCPU          = "cpu"
