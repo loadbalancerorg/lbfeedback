@@ -20,7 +20,8 @@ The Loadbalancer.org Feedback Agent v5 is cross-platform and concurrent, written
 - It can also be run via Upstart or simply sent to the background with `sudo nohup ./lbfeedback &` if desired.
 - The service handles signals correctly and will gracefully terminate with a SIGINT, as well as restarting on SIGHUP.
 - The Agent creates its own log path and log at: `/var/log/loadbalancer.org/lbfeedback/agent.log`
-- The Agent creates its own JSON configuration path and default file if they do not exist: `/etc/loadbalancer.org/lbfeedback/agent-config.json`. It will create a default configuration of a CPU monitor listening on TCP port 3333 if no configuration exists.
+- The Agent creates its own JSON configuration path and default file if they do not exist: `/etc/loadbalancer.org/lbfeedback/agent-config.json`. It will create a default configuration of a CPU monitor listening on TCP port 3333 if no configuration exists. The configuration parameters are defined in this file.
+- The output of the agent in TCP mode can be reviewed via `telnet localhost 3333` and in HTTP mode, `curl -v http://127.0.0.1:3333`.
 - Please review and edit the above file to play with the configuration settings; the format should be fairly self-explanatory. An arbitrary number of multiple Monitors and Responders may be defined. The "input-monitor" JSON field tells a Responder which Monitor to get its data from.
 - Supported Responder types are "http" and "tcp".
 - Supported Monitor types are "cpu", "ram" and "script".
