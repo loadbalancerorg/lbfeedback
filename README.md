@@ -10,9 +10,9 @@ The Loadbalancer.org Feedback Agent v5 is cross-platform and concurrent, written
 # Authors
 - Developer: Nicholas Turnbull <nicholas.turnbull@loadbalancer.org>
 
-# Rough notes for testing the alpha
+# Incredibly rough initial documentation
 *Please accept my sincerest apologies for the brevity of these notes, which I will update as time permits. -- NT*
-- Download the most recent version of the alpha from the binaries/ directory of this repository for the target platform and decompress it somewhere convenient.
+- Download the most recent version of the alpha from the `binaries/` directory of this repository for the target platform and decompress it somewhere convenient.
 - It does not matter where the binary is placed, as it will run from any directory. However, in order to write its logs and configuration files, it must be run with root permissions.
 - The binary is designed to be dependency-free irrespective of the platform build target; all required libraries should be compiled in.
 ## Linux x86_64
@@ -27,6 +27,10 @@ The Loadbalancer.org Feedback Agent v5 is cross-platform and concurrent, written
 - If using the "script" monitor type in the JSON config, you will also need to set "script-name" for the monitor to the filename only (not the full path) and place this file in `/etc/loadbalancer.org/lbfeedback`. The script must output a load value between 0-100 (the inverse of the reported feedback weight from the Agent) to STDOUT, not the exit status. An exit status other than 0 will result in an error stating that the feedback script failed to run.
 
 # Release Notes, Known Issues and To Do
+
+## v5.1.8r2-alpha (2024-02-20)
+- Linux build target: Remove accidental dependency on `glibc` by recompiling the binary using the Go-native `netgo` library instead. Checking the binary using `ldd` now reports "not a dynamic executable" as it should be. There are now no dynamic dependencies.
+- Create `build.sh` script in `agent/core` to enforce this.
 
 ## v5.1.8-alpha (2024-02-20)
 - Numerous bug fixes; refactoring to SystemMonitor and FeedbackResponder services.
