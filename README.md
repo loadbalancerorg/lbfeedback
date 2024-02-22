@@ -7,8 +7,19 @@ The Loadbalancer.org Feedback Agent v5 is cross-platform and concurrent, written
 **Important Note:** This project is currently in an alpha release state and is not suitable for production release at this time.
 **Please do NOT share this application with customers at this time or release this code publicly until QA has been completed.**
 
-# Authors
-- Developer: Nicholas Turnbull <nicholas.turnbull@loadbalancer.org>
+# Credits
+
+## Developers
+- Nicholas Turnbull (nicholas.turnbull@loadbalancer.org)
+
+## Testers
+- Andrei Grigoraş (andrei.grigoras@loadbalancer.org)
+- Damian Pacuszka (damian.pacuszka@loadbalancer.org)
+- Neil Stone (neil.stone@loadbalancer.org)
+
+## QA Reviewers
+- Dave Saunders (dave.saunders@loadbalancer.org)
+- Andrew Zak (andrew.zak@loadbalancer.org)
 
 # Incredibly rough initial documentation
 *Please accept my sincerest apologies for the brevity of these notes, which I will update as time permits. -- NT*
@@ -20,8 +31,7 @@ The Loadbalancer.org Feedback Agent v5 is cross-platform and concurrent, written
 - It can also be run via Upstart or simply sent to the background with `sudo nohup ./lbfeedback &` if desired.
 - The service handles signals correctly and will gracefully terminate with a SIGINT, as well as restarting on SIGHUP.
 - The Agent creates its own log path and log at: `/var/log/loadbalancer.org/lbfeedback/agent.log`
-- The Agent creates its own JSON configuration path and default file if they do not exist: `/etc/loadbalancer.org/lbfeedback/agent-config.json`. It will create a default configuration of a CPU monitor listening on TCP port 3333 if no configuration exists. The configuration parameters are defined in this file.
-- The output of the agent in TCP mode can be reviewed via `telnet localhost 3333` and in HTTP mode, `curl -v http://127.0.0.1:3333`.
+- The Agent creates its own JSON configuration path and default file if they do not exist: `/etc/loadbalancer.org/lbfeedback/agent-config.json`. It will create a default configuration of a CPU monitor listening on TCP port 3333 if no configuration exists.
 - Please review and edit the above file to play with the configuration settings; the format should be fairly self-explanatory. An arbitrary number of multiple Monitors and Responders may be defined. The "input-monitor" JSON field tells a Responder which Monitor to get its data from.
 - Supported Responder types are "http" and "tcp".
 - Supported Monitor types are "cpu", "ram" and "script".
@@ -30,7 +40,7 @@ The Loadbalancer.org Feedback Agent v5 is cross-platform and concurrent, written
 # Release Notes, Known Issues and To Do
 
 ## v5.1.8r2-alpha (2024-02-20)
-- Linux build target: Remove accidental dependency on `glibc` by recompiling the binary using the Go-native `netgo` library instead. Checking the binary using `ldd` now reports "not a dynamic executable" as it should be. There are now no dynamic dependencies.
+- Linux build target: Remove accidental dependency on `glibc` by recompiling the binary using the Go-native `netgo` library instead. Checking the binary using `ldd` now reports "not a dynamic executable" as it should do. There are now no dynamic dependencies.
 - Create `build.sh` script in `agent/core` to enforce this.
 
 ## v5.1.8-alpha (2024-02-20)
