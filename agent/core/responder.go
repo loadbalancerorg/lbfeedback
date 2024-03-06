@@ -45,8 +45,8 @@ type FeedbackResponder struct {
 	SourceMonitorName   string            `json:"input-monitor"`
 	SourceMonitorThread *SystemMonitor    `json:"-"`
 	ProtocolName        string            `json:"protocol"`
-	Connector           ProtocolConnector `json:"-"`
 	ListenPort          int               `json:"port"`
+	Connector           ProtocolConnector `json:"-"`
 	RequestTimeout      time.Duration     `json:"-"`
 	ResponseTimeout     time.Duration     `json:"-"`
 	LastError           error             `json:"-"`

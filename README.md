@@ -41,6 +41,11 @@ The Loadbalancer.org Feedback Agent v5 is cross-platform and concurrent, written
 
 ## Release Notes, Known Issues and To Do
 
+### v5.1.9-alpha (2024-03-06)
+- Significant code cleanup and refactoring for the `SystemMetric` and `SystemMonitor` types.
+- Improvements to JSON configuration format, including the ability to configure selected `StatisticsModel` parameters.
+- Miscellaneous minor bug fixes.
+
 ### v5.1.8r2-alpha (2024-02-20)
 - Linux build target: Remove accidental dependency on `glibc` by recompiling the binary using the Go-native `netgo` library instead. Checking the binary using `ldd` now reports "not a dynamic executable" as it should do. There are now no dynamic dependencies.
 - Create `build.sh` script in `agent/core` to enforce this.

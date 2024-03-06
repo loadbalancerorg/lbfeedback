@@ -23,12 +23,9 @@
 package agent
 
 const (
-	VersionString          = "5.1.8-alpha"
+	VersionString          = "5.1.9-alpha"
 	ServerProtocolHTTP     = "http"
 	ServerProtocolTCP      = "tcp"
-	MetricTypeCPU          = "cpu"
-	MetricTypeRAM          = "ram"
-	MetricTypeScript       = "script"
 	AgentSignalQuit        = 1
 	LogFileName            = "agent.log"
 	ConfigFileName         = "agent-config.json"

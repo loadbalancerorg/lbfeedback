@@ -243,8 +243,20 @@ func CreateDirectoryIfMissing(dir string) (err error) {
 func (agent *FeedbackAgent) setDefaultServiceConfig() {
 	agent.clearServices()
 	logrus.Info("Setting default service configuration.")
-	agent.addMonitor("mon1", "cpu", 100, "", 50)
-	agent.addResponder("res1", "mon1", "tcp", 3333)
+	mon, err := NewSystemMonitor("mon1", MetricTypeCPU,
+		SystemMonitorMinInterval, nil, nil)
+	if err != nil {
+		logrus.Error("Failed to create default system monitor: " +
+			err.Error())
+		return
+	}
+	err = agent.addMonitor(mon)
+	if err != nil {
+		logrus.Error("Failed to add default system monitor: " +
+			err.Error())
+		return
+	}
+	agent.addResponder("res1", "mon1", ServerProtocolTCP, 3333)
 	logrus.Info("Default configuration set.")
 }
 
@@ -271,7 +283,7 @@ func (agent *FeedbackAgent) configureFromJSON(config []byte) (err error) {
 	// Parse the JSON into a FeedbackAgent object.
 	err = json.Unmarshal(config, &parsed)
 	if err != nil {
-		err = errors.New("JSON syntax invalid or incorrect")
+		err = errors.New("JSON configuration is invalid or corrupted")
 		return
 	}
 	// Set up file logging for this agent.
@@ -317,15 +329,13 @@ func (agent *FeedbackAgent) configureFileLogging(dir string) (err error) {
 // based on the fields set within the parsed object. Any validation errors
 // will result in an error being returned.
 func (agent *FeedbackAgent) populateServices(parsed *FeedbackAgent) (err error) {
-	// Create monitors from the parsed config.
 	for name, monitor := range parsed.Monitors {
-		err = agent.addMonitor(
-			name,
-			monitor.MetricType,
-			monitor.PollInterval,
-			monitor.ScriptFileName,
-			monitor.SampleTime,
-		)
+		monitor.Name = name
+		err = agent.addMonitor(monitor)
+		if err != nil {
+			return
+		}
+		err = monitor.Initialise()
 		if err != nil {
 			return
 		}
@@ -345,24 +355,14 @@ func (agent *FeedbackAgent) populateServices(parsed *FeedbackAgent) (err error) 
 	return
 }
 
-// Creates a new Monitor and returns an error if it already exists.
-func (agent *FeedbackAgent) addMonitor(name string, metric string,
-	interval int, script string, sampleTime uint64) (err error) {
-	_, nameExists := agent.Monitors[name]
+func (agent *FeedbackAgent) addMonitor(monitor *SystemMonitor) (err error) {
+	_, nameExists := agent.Monitors[monitor.Name]
 	if nameExists {
-		err = errors.New("cannot create monitor '" + name +
+		err = errors.New("cannot create monitor '" + monitor.Name +
 			"': name already exists")
 		return
 	}
-	var monitor *SystemMonitor
-	monitor, err = NewSystemMonitor(name, metric, interval,
-		sampleTime, script, agent.ConfigDir)
-	if err != nil {
-		err = errors.New("failed to create monitor '" + name +
-			"': " + err.Error())
-		return
-	}
-	agent.Monitors[name] = monitor
+	agent.Monitors[monitor.Name] = monitor
 	return
 }
 

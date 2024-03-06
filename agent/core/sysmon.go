@@ -23,9 +23,7 @@ package agent
 
 import (
 	"errors"
-	"path"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -37,70 +35,68 @@ import (
 // to a [StatisticsModel] for cumulative calculation into relative feedback
 // weights.
 type SystemMonitor struct {
-	// JSON configuration fields; even those these are duplicated
-	// within other types, they are here purely for loading/saving
-	// the config structure and not for the main service logic.
-
-	// $ TO DO: There are places in the code which still refer to these
-	// outside of the context of the JSON config that need repointing
-	// to the SystemMetric object.
-	MetricType     string `json:"type"`
-	ScriptFileName string `json:"script-name,omitempty"`
-	PollInterval   int    `json:"interval-ms"`
-	SampleTime     uint64 `json:"sample-ms"`
-
-	// The actual type fields that we're working with.
-	Name       string           `json:"-"`
-	SysMetric  SystemMetric     `json:"-"`
-	StatsModel *StatisticsModel `json:"-"`
-	LastError  error            `json:"-"`
-	signal     chan int         `json:"-"`
-	isRunning  bool             `json:"-"`
-	mutex      sync.Mutex       `json:"-"`
+	Name          string           `json:"-"`
+	Type          string           `json:"type"`
+	Interval      int              `json:"interval-ms"`
+	Params        MetricParams     `json:"metric-config"`
+	StatsModel    *StatisticsModel `json:"stats-config,omitempty"`
+	SysMetric     SystemMetric     `json:"-"`
+	LastError     error            `json:"-"`
+	signal        chan int         `json:"-"`
+	isRunning     bool             `json:"-"`
+	isInitialised bool             `json:"-"`
+	mutex         sync.Mutex       `json:"-"`
 }
 
-func NewSystemMonitor(name string, metric string,
-	interval int, sampleTime uint64, scriptName string,
-	scriptDir string) (mon *SystemMonitor, err error) {
-	var sysmetric SystemMetric
-	switch metric {
-	case MetricTypeCPU:
-		sysmetric = &CPUMetric{
-			SampleTime: sampleTime,
-		}
-	case MetricTypeRAM:
-		sysmetric = &MemoryMetric{}
-	case MetricTypeScript:
-		sysmetric = &ScriptMetric{
-			scriptFullPath: path.Join(scriptDir, scriptName),
-		}
-	default:
-		err = errors.New("unrecognised metric type: '" + metric + "'")
-		return
-	}
-	mon = &SystemMonitor{
-		Name:           name,
-		SampleTime:     sampleTime,
-		ScriptFileName: scriptName,
-		PollInterval:   interval,
-		SysMetric:      sysmetric,
-		MetricType:     sysmetric.MetricName(),
-		StatsModel:     &StatisticsModel{},
-	}
-	// $ TO DO: Provide configurability for the stats model.
-	mon.StatsModel.SetDefaultParams()
+const (
+	SystemMonitorMinInterval int = 100
+)
 
+func NewSystemMonitor(name string, metric string, interval int, params MetricParams,
+	model *StatisticsModel) (mon *SystemMonitor, err error) {
+	mon = &SystemMonitor{
+		Name:     name,
+		Interval: interval,
+		Type:     metric,
+		Params:   params,
+	}
+	err = mon.Initialise()
 	return
 }
 
-// Launches this [SystemMonitor] as a goroutine, returning any errors that
-// occurred during the initial setup.
+func (monitor *SystemMonitor) Initialise() (err error) {
+	monitor.mutex.Lock()
+	defer monitor.mutex.Unlock()
+	if monitor.Params == nil {
+		monitor.Params = make(MetricParams)
+	}
+	if monitor.StatsModel == nil {
+		monitor.StatsModel = &StatisticsModel{}
+		monitor.StatsModel.SetDefaultParams()
+	}
+	monitor.SysMetric, err = NewMetric(monitor.Type,
+		monitor.Params)
+	if err != nil {
+		err = errors.New("failed to initialise monitor '" +
+			monitor.Name + "': " + err.Error())
+	} else {
+		monitor.isInitialised = true
+	}
+	return
+}
+
+// Launches this [SystemMonitor] as a goroutine, returning any errors
+// that occurred during the initial setup.
 func (monitor *SystemMonitor) Start() error {
-	// Start by locking to prevent a race condition with Stop(),
-	// and always perform an unlock on the mutex after this function returns.
+	// Start by locking to prevent a race condition with Stop(), and
+	// always perform an unlock on the mutex after this function returns.
 	monitor.mutex.Lock()
 	defer monitor.mutex.Unlock()
 	logLine := monitor.getLogHead()
+	if !monitor.isInitialised {
+		monitor.LastError = errors.New("monitor has not been initialised")
+		return monitor.LastError
+	}
 	if !monitor.isRunning {
 		monitor.LastError = nil
 		go monitor.run()
@@ -117,15 +113,9 @@ func (monitor *SystemMonitor) Start() error {
 		logLine += "failed to start; error: " + monitor.LastError.Error()
 		logrus.Error(logLine)
 	} else {
-		var metricDesc string
-		if monitor.MetricType == MetricTypeScript {
-			metricDesc = "script '" + monitor.ScriptFileName + "'"
-		} else {
-			metricDesc = strings.ToUpper(monitor.MetricType)
-		}
 		logrus.Info(monitor.getLogHead() + "is running (" +
-			metricDesc +
-			", interval " + strconv.Itoa(monitor.PollInterval) + "ms).")
+			monitor.SysMetric.GetDescription() +
+			", interval " + strconv.Itoa(monitor.Interval) + "ms).")
 	}
 	return monitor.LastError
 }
@@ -138,9 +128,10 @@ func (monitor *SystemMonitor) Stop() {
 	defer monitor.mutex.Unlock()
 	if monitor.isRunning {
 		monitor.mutex.Unlock()
-		// This function will block here until the quit signal is received.
+		// This function will block here until a quit signal.
 		monitor.signal <- AgentSignalQuit
-		// Get lock before returning to protect against a race condition with run().
+		// Get a lock before returning to protect against a race
+		// condition with the run() method.
 		monitor.mutex.Lock()
 	}
 }
@@ -152,6 +143,7 @@ func (monitor *SystemMonitor) run() {
 	defer monitor.mutex.Unlock()
 	monitor.signal = make(chan int)
 	monitor.isRunning = true
+	monitor.parseParams()
 	for monitor.isRunning {
 		select {
 		case <-monitor.signal:
@@ -181,12 +173,24 @@ func (monitor *SystemMonitor) run() {
 			// Unlock the mutex during the wait, and lock
 			// after it has concluded as we are resuming.
 			monitor.mutex.Unlock()
-			time.Sleep(time.Duration(monitor.PollInterval *
+			time.Sleep(time.Duration(monitor.Interval *
 				int(time.Millisecond)))
 			monitor.mutex.Lock()
 		}
 	}
 	logrus.Info(monitor.getLogHead() + "has now stopped.")
+}
+
+func (monitor *SystemMonitor) parseParams() {
+	if monitor.Interval < SystemMonitorMinInterval {
+		logrus.Warn(
+			monitor.getLogHead() +
+				"invalid interval; using minimum of " +
+				strconv.Itoa(SystemMonitorMinInterval) +
+				"ms.",
+		)
+		monitor.Interval = SystemMonitorMinInterval
+	}
 }
 
 // Generates the head of a log message.

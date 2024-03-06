@@ -18,12 +18,15 @@
 package agent
 
 import (
+	"errors"
+	"path"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/mem"
+	"github.com/sirupsen/logrus"
 )
 
 // #################################
@@ -39,16 +42,49 @@ func calculateMean(values []float64) float64 {
 	return float64(total / float64(len(values)))
 }
 
+func GetParamValueString(key string, params MetricParams) (str string, err error) {
+	value, exists := params[key]
+	if exists {
+		str = value
+	} else {
+		err = errors.New("missing parameter: '" + key + "'")
+	}
+	return
+}
+
 // #######################################################################
 // SystemMetric
 // #######################################################################
 
-// Defines a "metric" capable of reporting a load score (0-100) to the
-// System Metric Monitor. The interface consists of just one function,
-// which is to return the current load as a float64 value.
+type MetricParams map[string]string
+
+// [SystemMetric] defines a "metric" capable of reporting a load score
+// (0.0-100.0, as a float) to the System Metric Monitor.
 type SystemMetric interface {
+	Configure(params MetricParams) (err error)
 	GetLoad() (val float64, err error)
-	MetricName() string
+	GetMetricName() string
+	GetDescription() string
+}
+
+func NewMetric(metric string, params MetricParams) (mc SystemMetric, err error) {
+	switch metric {
+	case MetricTypeCPU:
+		mc = &CPUMetric{}
+	case MetricTypeRAM:
+		mc = &MemoryMetric{}
+	case MetricTypeScript:
+		mc = &ScriptMetric{}
+	default:
+		err = errors.New("unrecognised metric type: '" + metric + "'")
+		return
+	}
+	err = mc.Configure(params)
+	if err != nil {
+		err = errors.New("configuration failed for metric type '" +
+			metric + "': " + err.Error())
+	}
+	return
 }
 
 // #################################
@@ -56,16 +92,48 @@ type SystemMetric interface {
 // #################################
 
 type CPUMetric struct {
-	SampleTime uint64 `json:"-"`
+	SampleTime uint64
+}
+
+const (
+	MetricTypeCPU          = "cpu"
+	ParamKeySampleTime     = "sampling-ms"
+	CPUMetricMinSampleTime = 100
+)
+
+func (m *CPUMetric) Configure(params MetricParams) (err error) {
+	defaultWarn := ""
+	defaultSampleTime := false
+	sampleTime, exists := params[ParamKeySampleTime]
+	if !exists {
+		defaultWarn += "no sample time specified"
+	} else {
+		timeInt, _ := strconv.Atoi(sampleTime)
+		m.SampleTime = uint64(timeInt)
+	}
+	// Force a minimum sampling time for a CPU metric
+	// to prevent an impact on system performance.
+	if m.SampleTime < CPUMetricMinSampleTime {
+		if defaultWarn == "" {
+			defaultWarn = "sample time too low"
+		}
+		defaultSampleTime = true
+	}
+	if defaultSampleTime {
+		defaultWarn += "; using default of " +
+			strconv.Itoa(CPUMetricMinSampleTime) + "ms."
+		m.SampleTime = CPUMetricMinSampleTime
+		params[ParamKeySampleTime] = strconv.Itoa(CPUMetricMinSampleTime)
+	}
+	if defaultWarn != "" {
+		logrus.Warn("Metric type '" + m.GetMetricName() +
+			"': " + defaultWarn)
+	}
+	return
 }
 
 // Returns the current CPU metric for the host system.
 func (m *CPUMetric) GetLoad() (float64, error) {
-	// Force a minimum sampling time of at least 250ms for CPU
-	// to prevent an impact on system performance.
-	if m.SampleTime < 250 {
-		m.SampleTime = 250
-	}
 	// Whilst the docs for gopsutil indicate that passing "false"
 	// to the cpu.Percent() function should result in an overall
 	// utilisation figure, it in fact seems to only reflect the
@@ -80,8 +148,12 @@ func (m *CPUMetric) GetLoad() (float64, error) {
 	}
 }
 
-func (m *CPUMetric) MetricName() string {
+func (m *CPUMetric) GetMetricName() string {
 	return MetricTypeCPU
+}
+
+func (m *CPUMetric) GetDescription() string {
+	return "CPU"
 }
 
 // #################################
@@ -90,13 +162,23 @@ func (m *CPUMetric) MetricName() string {
 
 type MemoryMetric struct{}
 
+const MetricTypeRAM = "ram"
+
+func (m *MemoryMetric) Configure(params MetricParams) (err error) {
+	return
+}
+
 func (m *MemoryMetric) GetLoad() (float64, error) {
 	vmem, error := mem.VirtualMemory()
 	return float64(vmem.UsedPercent), error
 }
 
-func (m *MemoryMetric) MetricName() string {
+func (m *MemoryMetric) GetMetricName() string {
 	return MetricTypeRAM
+}
+
+func (m *MemoryMetric) GetDescription() string {
+	return "RAM"
 }
 
 // #################################
@@ -104,7 +186,24 @@ func (m *MemoryMetric) MetricName() string {
 // #################################
 
 type ScriptMetric struct {
+	scriptName     string
 	scriptFullPath string
+}
+
+const MetricTypeScript = "script"
+
+func (m *ScriptMetric) Configure(params MetricParams) (err error) {
+	scriptName, err := GetParamValueString("script-name", params)
+	if err != nil {
+		return
+	}
+	scriptPath, err := GetParamValueString("script-path", params)
+	if err != nil {
+		return
+	}
+	m.scriptFullPath = path.Join(scriptPath, scriptName)
+	m.scriptName = scriptName
+	return
 }
 
 func (m *ScriptMetric) GetLoad() (val float64, err error) {
@@ -119,8 +218,12 @@ func (m *ScriptMetric) GetLoad() (val float64, err error) {
 	return
 }
 
-func (m *ScriptMetric) MetricName() string {
+func (m *ScriptMetric) GetMetricName() string {
 	return MetricTypeScript
+}
+
+func (m *ScriptMetric) GetDescription() string {
+	return "script '" + m.scriptName + "'"
 }
 
 // -------------------------------------------------------------------

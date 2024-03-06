@@ -19,6 +19,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -34,6 +35,19 @@ type ProtocolConnector interface {
 	Close() (err error)
 }
 
+func NewProtocolConnector(protocol string) (conn ProtocolConnector, err error) {
+	switch protocol {
+	case ServerProtocolHTTP:
+		conn = &HTTPConnector{}
+	case ServerProtocolTCP:
+		conn = &TCPConnector{}
+	default:
+		err = errors.New("cannot create responder: invalid protocol '" +
+			protocol + "' specified")
+	}
+	return
+}
+
 // #################################
 // TCPListener
 // #################################
@@ -41,7 +55,6 @@ type ProtocolConnector interface {
 type TCPConnector struct {
 	tcpListener net.Listener       `json:"-"`
 	responder   *FeedbackResponder `json:"-"`
-	//GenericResponder
 }
 
 func (pc *TCPConnector) Listen(fbr *FeedbackResponder) (err error) {

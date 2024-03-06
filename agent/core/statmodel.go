@@ -39,56 +39,56 @@ import (
 // As it is cumulative, this model has an entirely static footprint.
 type StatisticsModel struct {
 	// The last value of x received as an observation.
-	XLastValue float64
+	XLastValue float64 `json:"-"`
 	// Count of observations in the current state (n).
-	XCount uint64
+	XCount uint64 `json:"-"`
 	// The significance-adjusted mean of the observations.
-	XAdjustedMean float64
+	XAdjustedMean float64 `json:"-"`
 	// Standard deviation (sigma_x) of the set, cumulatively.
-	XStdDev float64
+	XStdDev float64 `json:"-"`
 	// Z-score of the last observation (XValue)
-	ZScoreValue float64
+	ZScoreValue float64 `json:"-"`
 	// The current sum of x in the current state.
-	XSum float64
+	XSum float64 `json:"-"`
 	// The current sum of x^2 in the current state.
-	XSquaredSum float64
+	XSquaredSum float64 `json:"-"`
 	// Smallest observation value encountered.
-	XMin float64
+	XMin float64 `json:"-"`
 	// Largest observation value encountered.
-	XMax float64
+	XMax float64 `json:"-"`
 	// Maximum observations before a recentre is forced.
-	XCountLimit uint64
+	XCountLimit uint64 `json:"-"`
 	// Current sum of Z-scores within the current Z-window.
-	ZScoreSum float64
+	ZScoreSum float64 `json:"-"`
 	// Current mean of Z-scores within the current Z-window.
-	ZScoreMean float64
+	ZScoreMean float64 `json:"-"`
 	// Current count of Z-scores comprising the mean Z-score.
-	ZSampleCount uint64
+	ZSampleCount uint64 `json:"-"`
 	// The 2-tailed Z-value threshold for hypothesis significance;
 	// a ZMeanThreshold of 1.0 is treated as (-1.0, +1.0) either side
 	// of the mean; e.g a value of 1.0 is a range of 2 sigma.
-	ZMeanThreshold float64
+	ZMeanThreshold float64 `json:"z-threshold"`
 	// Number of Z-window samples to take before deciding significance.
 	// If zero and a ZMeanThreshold is set, significance will be decided
 	// after a single observation.
-	ZPredictionInterval uint64
+	ZPredictionInterval uint64 `json:"z-interval"`
 	// Was this model recentred during the last observation?
-	Recentred bool
+	Recentred bool `json:"-"`
 	// Is statistics calculation disabled (for direct mode)?
-	StatsDisabled bool
+	StatsDisabled bool `json:"direct-mode"`
 	// Maximum value for a returned weight score
-	WeightCeiling int64
+	WeightCeiling int64 `json:"weight-max"`
 	// Minimum value for a returned weight score
-	WeightFloor int64
+	WeightFloor int64 `json:"weight-min"`
 	// The scaling factor for the raw metric used to convert it into
 	// the weight score range, prior to integer conversion.
-	WeightScalingFactor float64
+	WeightScalingFactor float64 `json:"weight-scaling"`
 	// Should a "higher" score of the metric result in a "better" score?
-	InverseWeight bool
+	InverseWeight bool `json:"weight-invert"`
 	// Have the model parameters been set, so we don't force to defaults?
-	ParamsSet bool
+	ParamsSet bool `json:"-"`
 	// The last weight score computed by the model.
-	weightScore int64
+	weightScore int64 `json:"-"`
 }
 
 // Default parameters for model values, which are the minimum required
@@ -252,26 +252,24 @@ func (model *StatisticsModel) recalcStdDev() {
 func (model *StatisticsModel) handleZWindow() {
 	// Don't do any work at all if no Z-mean threshold is specified
 	// or if we haven't achieved a minimum number of observations.
-	if math.Abs(model.ZMeanThreshold) > 0 {
-		// Act on the result if the Z-sample count has been reached.
-		if model.ZSampleCount >= model.ZPredictionInterval {
-			if math.Abs(model.ZScoreMean) >= model.ZMeanThreshold {
-				// The null hypothesis is refuted if n observations
-				// have taken place yielding values that are, on
-				// average, greater than the required number of standard
-				// deviations away from the mean. That is, we consider
-				// this to be significant based on our model.
-				// Translate the Z-mean into the adjusted mean.
-				model.XAdjustedMean += model.ZScoreMean * model.XStdDev
-				model.RecentreModel()
-			} else {
-				// The null hypothesis cannot be refuted if the result
-				// of n observations yielded a Z-mean that does not
-				// meet the required threshold for significance; thus
-				// we recentre the Z-stats only and not the entire
-				// model as this sample was not significant.
-				model.recentreZStats()
-			}
+	if math.Abs(model.ZMeanThreshold) > 0 &&
+		model.ZSampleCount >= model.ZPredictionInterval {
+		if math.Abs(model.ZScoreMean) >= model.ZMeanThreshold {
+			// The null hypothesis is refuted if n observations
+			// have taken place yielding values that are, on
+			// average, greater than the required number of standard
+			// deviations away from the mean. That is, we consider
+			// this to be significant based on our model.
+			// Translate the Z-mean into the adjusted mean.
+			model.XAdjustedMean += model.ZScoreMean * model.XStdDev
+			model.RecentreModel()
+		} else {
+			// The null hypothesis cannot be refuted if the result
+			// of n observations yielded a Z-mean that does not
+			// meet the required threshold for significance; thus
+			// we recentre the Z-stats only and not the entire
+			// model as this sample was not significant.
+			model.recentreZStats()
 		}
 	}
 }
