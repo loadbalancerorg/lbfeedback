@@ -25,25 +25,31 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"strings"
 
 	agent "github.com/loadbalancerorg/lbfeedback/agent/core"
 )
 
-var TerminalBanner string = `
-     ▄ █           Loadbalancer.org Feedback Agent Service
-     █ █ █▄▄       Copyright (C) 2024 Loadbalancer.org Limited
-     █ █ ▄ █       Licensed under the GNU General Public License v3
+var ExitStatus int = 0
 
-This program comes with ABSOLUTELY NO WARRANTY. This is free software, and 
-you are welcome to redistribute it under certain conditions. For further
-information, please read the LICENSE file distributed with this program.
-`
-
-// Main function for compiling the CLI/service binary.
+// The main() function for building the CLI/service binary.
 func main() {
-	agent := agent.FeedbackAgent{}
-	fmt.Println(TerminalBanner)
-	agent.Run()
+	// Defer recovering any panics and terminating the agent.
+	if len(os.Args) > 1 && strings.TrimSpace(os.Args[1]) == "run-agent" {
+		// We are in the service personality.
+		defer func() {
+			err := recover()
+			if err != nil {
+				fmt.Println("Internal error occurred: ", err)
+			}
+			os.Exit(ExitStatus)
+		}()
+		ExitStatus = agent.LaunchAgentService()
+	} else {
+		// We are in the API client personality.
+		ExitStatus = agent.RunClientCLI()
+	}
 }
 
 // -------------------------------------------------------------------

@@ -25,21 +25,37 @@ The Loadbalancer.org Feedback Agent v5 is cross-platform and concurrent, written
 
 ## Incredibly rough initial documentation
 *Please accept my sincerest apologies for the brevity of these notes, which I will update as time permits. -- NT*
-- Download the most recent version of the alpha from the `binaries/` directory of this repository for the target platform and decompress it somewhere convenient.
 - It does not matter where the binary is placed, as it will run from any directory. However, in order to write its logs and configuration files, it must be run with root permissions.
 - The binary is designed to be dependency-free irrespective of the platform build target; all required libraries should be compiled in.
 ### Linux x86_64
-- For testing purposes, the easiest way to see its output and to terminate it if required is to run the Agent interactively on the shell: `sudo ./lbfeedback`
-- It can also be run via Upstart or simply sent to the background with `sudo nohup ./lbfeedback &` if desired.
-- The service handles signals correctly and will gracefully terminate with a SIGINT, as well as restarting on SIGHUP.
-- The Agent creates its own log path and log at: `/var/log/loadbalancer.org/lbfeedback/agent.log`
-- The Agent creates its own JSON configuration path and default file if they do not exist: `/etc/loadbalancer.org/lbfeedback/agent-config.json`. It will create a default configuration of a CPU monitor listening on TCP port 3333 if no configuration exists.
-- Please review and edit the above file to play with the configuration settings; the format should be fairly self-explanatory. An arbitrary number of multiple Monitors and Responders may be defined. The "input-monitor" JSON field tells a Responder which Monitor to get its data from.
-- Supported Responder types are "http" and "tcp".
-- Supported Monitor types are "cpu", "ram" and "script".
-- If using the "script" monitor type in the JSON config, you will also need to set "script-name" for the monitor to the filename only (not the full path) and place this file in `/etc/loadbalancer.org/lbfeedback`. The script must output a load value between 0-100 (the inverse of the reported feedback weight from the Agent) to STDOUT, not the exit status. An exit status other than 0 will result in an error stating that the feedback script failed to run.
+- Download the most recent version of the Feedback Agent from the `binaries/` directory of this repository for the target platform. **You do not need to build the binary for yourself as it is designed to be portable and dependency free.**
+- Untar the binary to a suitable location in your PATH (e.g. `/usr/bin`).
+- The binary has two "personalities"; if run with the command `lbfeedback run-agent` (as `sudo`) this will start the agent itself. This can be used either for testing the agent interactively or as the appropriate shell command to place in a startup script (e.g. an init or Upstart service, or a cron job). The user will not have to do this manually as Andy's install script (via a link from the Portal) will create the appropriate startup service.
+- You may wish to either use a separate terminal window so that you can view the real-time log events whilst testing with the CLI API client or send it to the background.
+- When run with `lbfeedback action` this launches the binary into the CLI client personality which allows it to send API commands to the running Agent. The Agent instance itself running in the background is responsible for updating the JSON configuration file and the CLI mode of the binary merely acts as an API client. The API key is fetched from the configuration file located at /opt/lbfeedback/agent-config.json to give the CLI personality of the binary the necessary credentials to access the agent API. The CLI Client personality does not require `sudo` privileges.
+- For initial MVP testing, simply check that the agent runs and creates a default configuration in /opt/lbfeedback. This should consist of:
+- - A TCP mode Responder with HAProxy commands disabled listening on all IPs on port 3333. Test this using Telnet to port 3333.
+- - An HTTP mode API Responder listening on 127.0.0.1 on port 3334. Test this using a Web browser.
+- - Run the agent interactively in a console window as above (as sudo), and in another console window (most convenient), try the following CLI client commands (no sudo required)
+- - `lbfeedback action get-feedback -name default`
+- - `lbfeedback action get-config`
+- - `lbfeedback action status`
+- - `lbfeedback action haproxy-enable -name default` (now observe the HAProxy command in telnet and `get-feedback`)
+- - `lbfeedback action haproxy-down -name default` (observe it now sends `down` in telnet)
+- - `lbfeedback action haproxy-clear -name default` (observe it now sends `up` again)
 
 ## Release Notes, Known Issues and To Do
+
+## v5.2.1-beta (2024-10-21)
+- A massive number of changes for the Linux MVP release.
+- Known issues:
+- - Colours from the `logrus` library are making their way through into the logfile in `/var/log/lbfeedback` which is very annoying. Strangely, this is harder to fix than you might imagine as the option to disable colours also has the effect of disabling the formatting.
+- - The error output from the CLI client mode is not very user-friendly.
+- - There is no self-documentation yet in the binary; that is, a `help` command is currently missing.
+- - There are almost no default parameters where these don't need to be specified.
+- - The CLI personality lacks prevalidation of parameters before sending to the API.
+- - A more human-friendly output than the pretty-printed JSON would be nice for the CLI result.
+- - Nick has not yet documented the CLI/API - there is a tonne of available options and commands (including adding, removing, editing stuff) but this needs to be written up.
 
 ### v5.1.9-alpha (2024-03-06)
 - Significant code cleanup and refactoring for the `SystemMetric` and `SystemMonitor` types.

@@ -1,4 +1,5 @@
 // connector.go
+//
 // Network Protocol Connectors for the Feedback Responder
 // Copyright (C) 2024 Loadbalancer.org Ltd
 //
@@ -21,9 +22,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
-	"strconv"
+	"strings"
+
+	"github.com/sirupsen/logrus"
 )
 
 // #######################################################################
@@ -35,21 +39,20 @@ type ProtocolConnector interface {
 	Close() (err error)
 }
 
-func NewProtocolConnector(protocol string) (conn ProtocolConnector, err error) {
+func NewFeedbackConnector(protocol string) (conn ProtocolConnector, err error) {
 	switch protocol {
-	case ServerProtocolHTTP:
+	case ProtocolHTTP, ProtocolAPI:
 		conn = &HTTPConnector{}
-	case ServerProtocolTCP:
+	case ProtocolTCP:
 		conn = &TCPConnector{}
 	default:
-		err = errors.New("cannot create responder: invalid protocol '" +
-			protocol + "' specified")
+		err = errors.New("invalid protocol '" + protocol + "' specified")
 	}
 	return
 }
 
 // #################################
-// TCPListener
+// TCPConnector
 // #################################
 
 type TCPConnector struct {
@@ -59,14 +62,20 @@ type TCPConnector struct {
 
 func (pc *TCPConnector) Listen(fbr *FeedbackResponder) (err error) {
 	pc.responder = fbr
-	pc.tcpListener, err = net.Listen("tcp4", ":"+fmt.Sprint(fbr.ListenPort))
+	addressString := strings.TrimSpace(fbr.ListenIPAddress)
+	if addressString == "*" {
+		addressString = ""
+	}
+	addressString = ":" + strings.TrimSpace(fbr.ListenPort)
+	pc.tcpListener, err = net.Listen("tcp", addressString)
 	if err != nil {
+		logrus.Error("TCP error: " + err.Error())
 		return
 	}
 	var conn net.Conn
-
 	for err == nil {
-		// Accept() will block here until the listener is closed.
+		// Accept() will block here until an error occurs (e.g. if
+		// the listener is closed) or a request is received from a client.
 		conn, err = pc.tcpListener.Accept()
 		if conn != nil {
 			go pc.handleRequest(conn)
@@ -76,7 +85,8 @@ func (pc *TCPConnector) Listen(fbr *FeedbackResponder) (err error) {
 }
 
 func (pc *TCPConnector) handleRequest(c net.Conn) {
-	fmt.Fprintf(c, "%s", pc.responder.getFeedbackString())
+	response, _ := pc.responder.GetResponse("")
+	fmt.Fprintf(c, "%s", response)
 	// Always force-close the connection after returning the feedback value.
 	// This is to cope with an issue with ldirectord which will hang until the
 	// connection is closed from the server
@@ -93,7 +103,7 @@ func (pc *TCPConnector) Close() (err error) {
 }
 
 // #################################
-// HTTPListener
+// HTTPConnector
 // #################################
 
 type HTTPConnector struct {
@@ -103,8 +113,17 @@ type HTTPConnector struct {
 
 func (pc *HTTPConnector) Listen(fbr *FeedbackResponder) (err error) {
 	pc.responder = fbr
+	ip := strings.TrimSpace(fbr.ListenIPAddress)
+	if ip == "*" {
+		ip = ""
+	}
+	port := strings.TrimSpace(fbr.ListenPort)
+	if port == "" {
+		err = errors.New("invalid port specified")
+		return
+	}
 	pc.httpServer = &http.Server{
-		Addr:         ":" + strconv.Itoa(fbr.ListenPort),
+		Addr:         ip + ":" + port,
 		Handler:      http.HandlerFunc(pc.handleRequest),
 		ReadTimeout:  fbr.RequestTimeout,
 		WriteTimeout: fbr.ResponseTimeout,
@@ -113,11 +132,27 @@ func (pc *HTTPConnector) Listen(fbr *FeedbackResponder) (err error) {
 	// error. As we have unlocked the mutex, Stop() will be able to
 	// call the method on the HTTP server to tell it to stop.
 	err = pc.httpServer.ListenAndServe()
+	if err != nil && err != http.ErrServerClosed {
+		logrus.Error("HTTP error: " + err.Error())
+	}
 	return
 }
 
 func (pc *HTTPConnector) handleRequest(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, "%s", pc.responder.getFeedbackString())
+	// Read in the entire request body.
+	body, err := io.ReadAll(r.Body)
+	// Can't return the error here, since this is a callback from http
+	// $ TO DO: Deal with what happens if we can't read the HTTP body
+	if err != nil {
+		logrus.Error("failed to read HTTP response")
+	}
+	response, quitAfterResponse := pc.responder.GetResponse(string(body))
+	// Send response to writer (and therefore to the client).
+	fmt.Fprintf(w, "%s", response)
+	// If this was an API action requiring the agent to now quit, perform it.
+	if quitAfterResponse {
+		pc.responder.ParentAgent.SelfSignalQuit()
+	}
 }
 
 func (pc *HTTPConnector) Close() (err error) {

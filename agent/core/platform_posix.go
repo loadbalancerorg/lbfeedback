@@ -26,23 +26,32 @@
 package agent
 
 import (
+	"io/fs"
 	"os"
 	"os/exec"
 	"os/signal"
 	"syscall"
 )
 
+const (
+	DefaultDirPermissions  fs.FileMode = 0755
+	DefaultFilePermissions fs.FileMode = 0644
+
+	// Platform specific paths
+	ConfigDir = "/opt/lbfeedback"
+	LogDir    = "/var/log/lbfeedback"
+
+	ExitStatusNormal     = 0
+	ExitStatusParamError = 1
+)
+
 func (agent *FeedbackAgent) PlatformConfigureSignals() {
 	agent.systemSignals = make(chan os.Signal, 1)
 	agent.restartSignal = syscall.SIGHUP
+	agent.quitSignal = syscall.SIGQUIT
 	signal.Notify(agent.systemSignals, syscall.SIGHUP, syscall.SIGINT,
 		syscall.SIGQUIT, syscall.SIGTERM)
 
-}
-
-func (agent *FeedbackAgent) PlatformSetDefaultPaths() {
-	agent.ConfigDir = "/etc/loadbalancer.org/lbfeedback"
-	agent.LogDir = "/var/log/loadbalancer.org/lbfeedback"
 }
 
 func PlatformExecuteScript(fullPath string) (out string, err error) {
@@ -51,6 +60,12 @@ func PlatformExecuteScript(fullPath string) (out string, err error) {
 	bytes, err = exec.Command("bash", "-c", fullPath).Output()
 	out = string(bytes)
 	//logrus.Debug("PlatformExecuteScript: output=" + out)
+	return
+}
+
+func PlatformOpenLogFile(fullPath string) (file *os.File, err error) {
+	file, err = os.OpenFile(fullPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY,
+		DefaultFilePermissions)
 	return
 }
 

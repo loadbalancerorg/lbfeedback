@@ -98,7 +98,7 @@ type CPUMetric struct {
 const (
 	MetricTypeCPU          = "cpu"
 	ParamKeySampleTime     = "sampling-ms"
-	CPUMetricMinSampleTime = 100
+	CPUMetricMinSampleTime = 200
 )
 
 func (m *CPUMetric) Configure(params MetricParams) (err error) {

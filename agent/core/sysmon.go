@@ -1,8 +1,9 @@
 // sysmon.go
 // Feedback Agent System Monitor
 //
-// Project:		Loadbalancer.org Feedback Agent v5
-// Author: 		Nicholas Turnbull <nicholas.turnbull@loadbalancer.org>
+// Project:     Loadbalancer.org Feedback Agent v5
+// Author:      Nicholas Turnbull
+//              <nicholas.turnbull@loadbalancer.org>
 //
 // Copyright (C) 2024 Loadbalancer.org Ltd
 //
@@ -30,41 +31,55 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// [SystemMonitor] defines a System Metric Monitor which is measuring a
+// [SystemMonitor] defines a System Metric Monitor that measures a
 // parameter on the local system concurrently, with these values passed
 // to a [StatisticsModel] for cumulative calculation into relative feedback
 // weights.
 type SystemMonitor struct {
 	Name          string           `json:"-"`
-	Type          string           `json:"type"`
+	MetricType    string           `json:"metric-type"`
 	Interval      int              `json:"interval-ms"`
-	Params        MetricParams     `json:"metric-config"`
+	Params        MetricParams     `json:"metric-config,omitempty"`
 	StatsModel    *StatisticsModel `json:"stats-config,omitempty"`
 	SysMetric     SystemMetric     `json:"-"`
 	LastError     error            `json:"-"`
-	signal        chan int         `json:"-"`
-	isRunning     bool             `json:"-"`
+	signalChannel chan int         `json:"-"`
+	statusChannel chan int         `json:"-"`
+	runState      bool             `json:"-"`
 	isInitialised bool             `json:"-"`
-	mutex         sync.Mutex       `json:"-"`
+	mutex         *sync.Mutex      `json:"-"`
 }
 
 const (
-	SystemMonitorMinInterval int = 100
+	SystemMonitorMinInterval int = 200
 )
 
-func NewSystemMonitor(name string, metric string, interval int, params MetricParams,
-	model *StatisticsModel) (mon *SystemMonitor, err error) {
+func NewSystemMonitor(name string, metric string, interval int,
+	params MetricParams, model *StatisticsModel) (mon *SystemMonitor,
+	err error) {
 	mon = &SystemMonitor{
-		Name:     name,
-		Interval: interval,
-		Type:     metric,
-		Params:   params,
+		Name:          name,
+		Interval:      interval,
+		MetricType:    metric,
+		Params:        params,
+		signalChannel: make(chan int),
+		statusChannel: make(chan int),
 	}
 	err = mon.Initialise()
 	return
 }
 
+func (monitor *SystemMonitor) Copy() (copy SystemMonitor) {
+	copy = *monitor
+	copy.mutex = nil
+	copy.runState = false
+	return
+}
+
 func (monitor *SystemMonitor) Initialise() (err error) {
+	if monitor.mutex == nil {
+		monitor.mutex = &sync.Mutex{}
+	}
 	monitor.mutex.Lock()
 	defer monitor.mutex.Unlock()
 	if monitor.Params == nil {
@@ -74,7 +89,7 @@ func (monitor *SystemMonitor) Initialise() (err error) {
 		monitor.StatsModel = &StatisticsModel{}
 		monitor.StatsModel.SetDefaultParams()
 	}
-	monitor.SysMetric, err = NewMetric(monitor.Type,
+	monitor.SysMetric, err = NewMetric(monitor.MetricType,
 		monitor.Params)
 	if err != nil {
 		err = errors.New("failed to initialise monitor '" +
@@ -87,70 +102,102 @@ func (monitor *SystemMonitor) Initialise() (err error) {
 
 // Launches this [SystemMonitor] as a goroutine, returning any errors
 // that occurred during the initial setup.
-func (monitor *SystemMonitor) Start() error {
-	// Start by locking to prevent a race condition with Stop(), and
-	// always perform an unlock on the mutex after this function returns.
+func (monitor *SystemMonitor) Start() (err error) {
+	// Try and launch the goroutine and wait for whether it succeeded or not.
+	initChannel := make(chan int)
+	go monitor.run(initChannel)
+	status := <-initChannel
+	// Lock the mutex to avoid a race condition with the goroutine
+	// itself and with Stop(), and the other state change functions.
 	monitor.mutex.Lock()
 	defer monitor.mutex.Unlock()
-	logLine := monitor.getLogHead()
-	if !monitor.isInitialised {
-		monitor.LastError = errors.New("monitor has not been initialised")
-		return monitor.LastError
-	}
-	if !monitor.isRunning {
-		monitor.LastError = nil
-		go monitor.run()
-		monitor.mutex.Unlock()
-		// Block here using the mutex until either runMonitor() has
-		// initialised or failed to start, so that we can handle success/error.
-		monitor.mutex.Lock()
-	} else {
-		// There is already a goroutine running for this monitor; fail with error.
-		monitor.LastError = errors.New("monitor already running")
-	}
-	// Report success or error based on the result.
-	if monitor.LastError != nil {
-		logLine += "failed to start; error: " + monitor.LastError.Error()
-		logrus.Error(logLine)
-	} else {
-		logrus.Info(monitor.getLogHead() + "is running (" +
+	if status == ServiceStateRunning && monitor.LastError == nil {
+		logrus.Info(monitor.getLogHead() + "has started (" +
 			monitor.SysMetric.GetDescription() +
 			", interval " + strconv.Itoa(monitor.Interval) + "ms).")
+		// As this has been a successful start, the init channel
+		// now becomes this Monitor's output channel. (Again, we
+		// currently have the mutex, remember.)
+		monitor.statusChannel = initChannel
 	}
 	return monitor.LastError
 }
 
-// Stops this system monitor service.
-func (monitor *SystemMonitor) Stop() {
+// Stops this [SystemMonitor] service.
+func (monitor *SystemMonitor) Stop() (err error) {
 	// Capture the running status within a lock cycle to prevent
 	// a possible race condition with Start().
+	if monitor.IsRunning() {
+		stopped := false
+		for !stopped {
+			// Send the child goroutine a quit message
+			monitor.signalChannel <- ServiceStateStopped
+			// Check for a successful stopped reply
+			if <-monitor.statusChannel == ServiceStateStopped {
+				logrus.Info(monitor.getLogHead() +
+					"has stopped.")
+				stopped = true
+			}
+		}
+	} else {
+		err = errors.New("monitor is not running")
+	}
+	return
+}
+
+// Restarts this [SystemMonitor] service.
+func (monitor *SystemMonitor) Restart() (err error) {
+	err = monitor.Stop()
+	if err != nil {
+		return
+	}
+	err = monitor.Start()
+	return
+}
+
+func (monitor *SystemMonitor) IsRunning() (state bool) {
 	monitor.mutex.Lock()
 	defer monitor.mutex.Unlock()
-	if monitor.isRunning {
-		monitor.mutex.Unlock()
-		// This function will block here until a quit signal.
-		monitor.signal <- AgentSignalQuit
-		// Get a lock before returning to protect against a race
-		// condition with the run() method.
-		monitor.mutex.Lock()
-	}
+	state = monitor.runState
+	return
 }
 
 // The main worker function for the [SystemMonitor] type.
-func (monitor *SystemMonitor) run() {
+func (monitor *SystemMonitor) run(initChannel chan int) {
 	// Lock the mutex straight away on first launch.
 	monitor.mutex.Lock()
 	defer monitor.mutex.Unlock()
-	monitor.signal = make(chan int)
-	monitor.isRunning = true
-	monitor.parseParams()
-	for monitor.isRunning {
+	var err error
+	if !monitor.isInitialised {
+		err = errors.New("monitor is not initialised")
+	} else if monitor.runState {
+		err = errors.New("monitor is already running")
+	}
+	if err != nil {
+		monitor.LastError = err
+		initChannel <- ServiceStateFailed
+		return
+	}
+	monitor.enforceInterval()
+	// We currently have the mutex, so it's safe to set the channel
+	// and the current state parameters. None of the state change
+	// functions will touch this until they get the lock.
+	monitor.runState = true
+	monitor.LastError = nil
+	monitor.signalChannel = make(chan int)
+	initChannel <- ServiceStateRunning
+	metricFailed := false
+	for monitor.runState {
 		select {
-		case <-monitor.signal:
-			// Exit the run loop if we catch the signal to
-			// tell us to stop. This could be used for more
-			// advanced functionality in the future.
-			monitor.isRunning = false
+		case msg := <-monitor.signalChannel:
+			if msg == ServiceStateStopped {
+				// Exit the run loop if we catch the signal to
+				// tell us to stop.
+				monitor.runState = false
+			} else {
+				logrus.Error("monitor caught unknown signal, ignoring: " +
+					strconv.Itoa(msg))
+			}
 		default:
 			// As we are still running, get a sample from our
 			// metric and pass it to the stats model, waiting
@@ -158,9 +205,10 @@ func (monitor *SystemMonitor) run() {
 			value, err := monitor.getMetricSample()
 			if err == nil {
 				monitor.StatsModel.NewValue(value)
-				if monitor.LastError != nil {
+				if monitor.LastError != nil && metricFailed {
 					logrus.Info(monitor.getLogHead() +
 						"sampling has now succeeded; error cleared.")
+					metricFailed = false
 					monitor.LastError = nil
 				}
 			} else if monitor.LastError == nil {
@@ -168,6 +216,7 @@ func (monitor *SystemMonitor) run() {
 					"failed to sample metric: " +
 					err.Error())
 				logrus.Warn("The above error will be logged only once.")
+				metricFailed = true
 				monitor.LastError = err
 			}
 			// Unlock the mutex during the wait, and lock
@@ -178,10 +227,15 @@ func (monitor *SystemMonitor) run() {
 			monitor.mutex.Lock()
 		}
 	}
-	logrus.Info(monitor.getLogHead() + "has now stopped.")
+	monitor.sendStoppedStatus()
 }
 
-func (monitor *SystemMonitor) parseParams() {
+func (monitor *SystemMonitor) sendStoppedStatus() {
+	// Announce that we've now stopped on the status channel.
+	monitor.statusChannel <- ServiceStateStopped
+}
+
+func (monitor *SystemMonitor) enforceInterval() {
 	if monitor.Interval < SystemMonitorMinInterval {
 		logrus.Warn(
 			monitor.getLogHead() +
@@ -205,9 +259,9 @@ func (monitor *SystemMonitor) getMetricSample() (value float64, err error) {
 }
 
 // Returns the current feedback weight for this monitor thread.
-func (monitor *SystemMonitor) CurrentWeight() (result int64) {
+func (monitor *SystemMonitor) CurrentAvailability() (result int64) {
 	monitor.mutex.Lock()
-	result = monitor.StatsModel.GetWeightScore()
+	result = monitor.StatsModel.GetAvailabilityScore()
 	monitor.mutex.Unlock()
 	return result
 }

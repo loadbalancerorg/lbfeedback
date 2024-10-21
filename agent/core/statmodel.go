@@ -75,7 +75,7 @@ type StatisticsModel struct {
 	// Was this model recentred during the last observation?
 	Recentred bool `json:"-"`
 	// Is statistics calculation disabled (for direct mode)?
-	StatsDisabled bool `json:"direct-mode"`
+	StatsDisabled bool `json:"-"`
 	// Maximum value for a returned weight score
 	WeightCeiling int64 `json:"weight-max"`
 	// Minimum value for a returned weight score
@@ -100,7 +100,7 @@ type StatisticsModel struct {
 
 const (
 	DefaultXCountLimit         = 0x100000000
-	DefaultWeightCeiling       = 99
+	DefaultWeightCeiling       = 100
 	DefaultWeightFloor         = 0
 	DefaultWeightScalingFactor = 1.0
 	DefaultZMeanThreshold      = 1.0
@@ -298,7 +298,7 @@ func (model *StatisticsModel) calculateWeightScore() {
 }
 
 // Accessor for the weight score.
-func (model *StatisticsModel) GetWeightScore() int64 {
+func (model *StatisticsModel) GetAvailabilityScore() int64 {
 	// "Fail safe" to avoid offlining Real Servers in the event that we
 	// do not yet have enough data to provide a score, by returning
 	// the maximum score unless we have at least one observation.

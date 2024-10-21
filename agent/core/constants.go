@@ -1,5 +1,5 @@
 // constants.go
-// Feedback Agent - Project Constants
+// Feedback Agent: Project Build Settings and Constants
 //
 // Project:		Loadbalancer.org Feedback Agent v5
 // Author: 		Nicholas Turnbull
@@ -23,15 +23,29 @@
 package agent
 
 const (
-	VersionString          = "5.1.9-alpha"
-	ServerProtocolHTTP     = "http"
-	ServerProtocolTCP      = "tcp"
-	AgentSignalQuit        = 1
-	LogFileName            = "agent.log"
-	ConfigFileName         = "agent-config.json"
-	DefaultDirPermissions  = 0755
-	DefaultFilePermissions = 0644
+	VersionString       string = "5.2.1-beta"
+	ProtocolHTTP        string = "http"
+	ProtocolTCP         string = "tcp"
+	ProtocolAPI         string = "http-api"
+	APIName             string = "lbfeedback-api"
+	ServiceStateStopped int    = 1
+	ServiceStateRunning int    = 2
+	ServiceStateFailed  int    = 3
+	LogFileName         string = "agent.log"
+	ConfigFileName      string = "agent-config.json"
+	LocalPathMode       bool   = false
+	CopyrightYear       string = "2024"
 )
+
+var ShellBanner string = `
+     ▄ █           Loadbalancer.org Feedback Agent v` + VersionString + `
+     █ █ █▄▄       Copyright (C) ` + CopyrightYear + ` Loadbalancer.org Limited
+     █ █ ▄ █       Licensed under the GNU General Public License v3
+
+This program comes with ABSOLUTELY NO WARRANTY. This is free software, and 
+you are welcome to redistribute it under certain conditions. For further
+information, please read the LICENSE file distributed with this program.
+`
 
 // -------------------------------------------------------------------
 // END OF FILE
