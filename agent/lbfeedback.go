@@ -26,7 +26,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"strings"
 
 	agent "github.com/loadbalancerorg/lbfeedback/agent/core"
 )
@@ -35,21 +34,16 @@ var ExitStatus int = 0
 
 // The main() function for building the CLI/service binary.
 func main() {
-	// Defer recovering any panics and terminating the agent.
-	if len(os.Args) > 1 && strings.TrimSpace(os.Args[1]) == "run-agent" {
-		// We are in the service personality.
+	if !agent.PanicDebug {
 		defer func() {
 			err := recover()
 			if err != nil {
 				fmt.Println("Internal error occurred: ", err)
 			}
-			os.Exit(ExitStatus)
 		}()
-		ExitStatus = agent.LaunchAgentService()
-	} else {
-		// We are in the API client personality.
-		ExitStatus = agent.RunClientCLI()
 	}
+	ExitStatus = agent.PlatformMain()
+	os.Exit(ExitStatus)
 }
 
 // -------------------------------------------------------------------

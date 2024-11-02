@@ -31,50 +31,61 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
+
+	"github.com/sirupsen/logrus"
 )
 
 // Delivers the client CLI personality of the Feedback Agent.
 func RunClientCLI() (status int) {
 	// Print the CLI masthead.
 	fmt.Println(ShellBanner)
-	fmt.Println("Entering CLI Client mode.")
+	// Suppress any log messages from logrus where we are calling
+	// agent functions for loading the configuration.
+	logrus.SetOutput(io.Discard)
 	// Check minimum parameters have been provided.
 	argc := len(os.Args)
 	if argc < 2 {
 		fmt.Println("Error: No command specified; terminating.")
-		fmt.Println("To run the Agent (either interactively or from a startup script), \n" +
-			"  use the 'run-agent' command.")
-		fmt.Println("For CLI control and configuration syntax, " +
-			"please consult the README file.")
-		status = ExitStatusParamError
+		PlatformPrintRunInstructions()
+		fmt.Println("For a brief summary of CLI control and configuration syntax, \n" +
+			"  use the 'help' command.")
+		status = ExitStatusError
 		return
 	}
-	// Get the command and remaining arguments.
-	command := os.Args[1]
-	argv := os.Args[2:]
-	responseObject := &APIResponse{}
-	var err error
-	// Run the specified command, or output an error if it does not exist.
-	switch command {
-	case "action":
-		if argc >= 3 {
-			// If we have the minimum arguments, handle the action
-			responseObject, _, err =
-				CLIHandleAgentAction(argv[0], argv[1:])
-		} else {
-			// Otherwise we weren't given an action to perform
-			err = errors.New("no action type specified")
-		}
-	default:
-		// Command not recognised
-		err = errors.New("not recognised")
+	if os.Args[1] == "help" {
+		PlatformPrintHelpMessage()
+		status = ExitStatusNormal
+		return
 	}
+	// Get the actionName and remaining arguments.
+	actionName := os.Args[1]
+	actionType := ""
+	var actionArgs []string
+	// -- Process arguments/flags.
+	// Assume an unadorned third argument is the type field
+	// unless it is prefixed with "-" as a flag.
+	if argc >= 3 {
+		actionArgs = os.Args[2:]
+		actionArgs[0] = strings.TrimSpace(actionArgs[0])
+		if !strings.HasPrefix(actionArgs[0], "-") {
+			actionType = actionArgs[0]
+			if len(actionArgs) >= 2 {
+				actionArgs = actionArgs[1:]
+			} else {
+				actionArgs = make([]string, 0)
+			}
+		}
+	}
+	responseObject := &APIResponse{}
+	responseObject, _, err := CLIHandleAgentAction(actionName,
+		actionType, actionArgs)
 	if err != nil {
-		println("Error: command '" + command + "': " + err.Error() + ".")
-		status = ExitStatusParamError
+		println("Error: " + err.Error() + "")
+		status = ExitStatusError
 	}
 	if responseObject != nil {
-		// Remove unwanted fields from the object
+		// Remove fields that we want to hide from the object
 		responseObject.Request = nil
 		responseObject.ID = nil
 		remarshal, err := json.MarshalIndent(responseObject, "", "    ")
@@ -83,79 +94,118 @@ func RunClientCLI() (status int) {
 		} else {
 			println("JSON reply from the Feedback Agent:\n" +
 				string(remarshal))
+			if responseObject.Message != "" {
+				println("\n" + responseObject.Message)
+			}
 		}
 	}
-	if responseObject.Success {
+	if responseObject != nil && responseObject.Success {
 		println("Operation completed successfully.")
 	} else {
-		println("An error occurred during the the operation.")
+		println("An error occurred during the operation.")
 	}
 	return
 }
 
-func CLIHandleAgentAction(action string, argv []string) (responseObject *APIResponse,
-	responseJSON string, err error) {
-	// Check that the supplied command is a valid API action.
-	switch action {
-	case "status", "add", "edit", "delete", "start", "stop",
-		"restart", "save-config", "get-config", "get-feedback",
-		"haproxy-enable", "haproxy-disable", "haproxy-up",
-		"haproxy-down", "haproxy-clear", "haproxy-set-threshold":
-		// Valid command; no action
-	case action:
-		// Unrecognised command
-		err = errors.New("action '" + action + "' not recognised")
-		return
-	}
-
+func CLIHandleAgentAction(actionName string, actionType string, argv []string) (
+	responseObject *APIResponse, responseJSON string, err error) {
 	// Define the set of flags available for all actions to
 	// process from the CLI. Note that it is the API's responsibility
 	// to validate that the correct parameters have been supplied.
-	act := flag.NewFlagSet("action", flag.ContinueOnError)
-	actService := act.String("service", "", "")
-	actName := act.String("name", "", "")
-	actSourceMonitorName := act.String("monitor", "", "")
-	actProtocolName := act.String("protocol", "", "")
-	actListenIPAddress := act.String("ip", "", "")
-	actListenPort := act.String("port", "", "")
-	actRequestTimeout := act.Int("request-timeout", 0, "")
-	actResponseTimeout := act.Int("response-timeout", 0, "")
-	actHAProxyCommands := act.Bool("send-commands", false, "")
-	actHAProxyThreshold := act.Int("threshold-value", 0, "")
-	actMetricType := act.String("metric-type", "", "")
-	actInterval := act.Int("interval-ms", 0, "")
+	apiArgs := flag.NewFlagSet("", flag.ContinueOnError)
+	argType := apiArgs.String("type", "", "")
+	argTargetName := apiArgs.String("name", "", "")
+	argCommandList := apiArgs.String("command-list", "", "")
+
+	// Fields for [FeedbackResponder] API requests.
+	argProtocolName := apiArgs.String("protocol", "", "")
+	argIPAddress := apiArgs.String("ip", "", "")
+	argListenPort := apiArgs.String("port", "", "")
+	argRequestTimeout := apiArgs.Int("request-timeout", 0, "")
+	argResponseTimeout := apiArgs.Int("response-timeout", 0, "")
+	argThresholdEnabled := apiArgs.Bool("threshold-enabled", true, "")
+	argScoreThreshold := apiArgs.Int("threshold-min", 0, "")
+	argCommandInterval := apiArgs.Int("command-interval", -1, "")
+
+	// Fields for [SystemMonitor] API requests.
+	argMonitorName := apiArgs.String("monitor", "", "")
+	argSourceSignificance := apiArgs.Float64("significance", 1.0, "")
+	argSourceMaxValue := apiArgs.Int64("max-value", -1, "")
+	argMetricType := apiArgs.String("metric-type", "", "")
+	argMetricConfig := apiArgs.String("metric-config", "", "")
 
 	// $$ TO DO: Define help for actions (catch error)
-	_ = act.Parse(argv)
+	_ = apiArgs.Parse(argv)
+
+	// If no action type was specified, a -type flag can be
+	// set instead; handle this situation.
+	if actionType == "" && argType != nil && *argType != "" {
+		actionType = *argType
+	}
+
+	// Unset command interval if invalid.
+	if argCommandInterval != nil && *argCommandInterval < 0 {
+		argCommandInterval = nil
+	}
+
+	// Unset source max value if invalid.
+	if argSourceMaxValue != nil && *argSourceMaxValue < 0 {
+		argSourceMaxValue = nil
+	}
 
 	// Set fields into the new API request; the API will be responsible
 	// for determining the validity of options for a request.
 	request := APIRequest{
-		Action:            action,
-		Service:           *actService,
-		Name:              *actName,
-		SourceMonitorName: actSourceMonitorName,
-		ProtocolName:      actProtocolName,
-		ListenIPAddress:   actListenIPAddress,
-		ListenPort:        actListenPort,
-		RequestTimeout:    actRequestTimeout,
-		ResponseTimeout:   actResponseTimeout,
-		HAProxyCommands:   actHAProxyCommands,
-		HAProxyThreshold:  actHAProxyThreshold,
-		MetricType:        actMetricType,
-		Interval:          actInterval,
+		Action:             actionName,
+		Type:               actionType,
+		TargetName:         *argTargetName,
+		ProtocolName:       argProtocolName,
+		ListenIPAddress:    argIPAddress,
+		ListenPort:         argListenPort,
+		RequestTimeout:     argRequestTimeout,
+		ResponseTimeout:    argResponseTimeout,
+		CommandList:        argCommandList,
+		ThresholdEnabled:   argThresholdEnabled,
+		ThresholdScore:     argScoreThreshold,
+		CommandInterval:    argCommandInterval,
+		SourceMonitorName:  argMonitorName,
+		SourceSignificance: argSourceSignificance,
+		SourceMaxValue:     argSourceMaxValue,
+		MetricType:         argMetricType,
+		MetricInterval:     argCommandInterval,
+		MetricParams:       nil,
+	}
+
+	// Parse key/value pairs for the metric configuration,
+	// if specified.
+	if argMetricConfig != nil {
+		params := MetricParams{}
+		items := strings.Split(*argMetricConfig, ",")
+		for _, param := range items {
+			param := strings.TrimSpace(param)
+			if len(param) < 1 {
+				continue
+			}
+			keyVal := strings.Split(param, "=")
+			if len(keyVal) != 2 {
+				err = errors.New("invalid key/value pair '" +
+					param + "'")
+				return
+			}
+			params[keyVal[0]] = keyVal[1]
+		}
+		request.MetricParams = &params
 	}
 
 	// Workaround for * being expanded into a glob in bash
 	if *request.ListenIPAddress == "any" {
-		// Needed to get around the conversion to *string
 		asterisk := "*"
 		request.ListenIPAddress = &asterisk
 	}
 
 	// $ TO DO: Allow user to specify the API IP, port and key as flags,
 	// or alternatively the config dir and/or the config filename.
-	configDir := ConfigDir
+	configDir := DefaultConfigDir
 	configFile := ConfigFileName
 	// If this binary was built in local path mode, use that local path.
 	if LocalPathMode {
@@ -181,7 +231,7 @@ func CLIHandleAgentAction(action string, argv []string) (responseObject *APIResp
 		err = errors.New("Error: " + err.Error() + "\nThe CLI Client " +
 			"failed to establish an HTTP connection to the agent." +
 			"\nPlease check that the Agent is running and able to " +
-			"accept API requests")
+			"accept API requests.")
 		return
 	}
 	// Read the contents of the response.

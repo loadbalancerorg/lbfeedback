@@ -76,19 +76,10 @@ type StatisticsModel struct {
 	Recentred bool `json:"-"`
 	// Is statistics calculation disabled (for direct mode)?
 	StatsDisabled bool `json:"-"`
-	// Maximum value for a returned weight score
-	WeightCeiling int64 `json:"weight-max"`
-	// Minimum value for a returned weight score
-	WeightFloor int64 `json:"weight-min"`
-	// The scaling factor for the raw metric used to convert it into
-	// the weight score range, prior to integer conversion.
-	WeightScalingFactor float64 `json:"weight-scaling"`
-	// Should a "higher" score of the metric result in a "better" score?
-	InverseWeight bool `json:"weight-invert"`
 	// Have the model parameters been set, so we don't force to defaults?
 	ParamsSet bool `json:"-"`
 	// The last weight score computed by the model.
-	weightScore int64 `json:"-"`
+	LastResult int64 `json:"-"`
 }
 
 // Default parameters for model values, which are the minimum required
@@ -100,9 +91,6 @@ type StatisticsModel struct {
 
 const (
 	DefaultXCountLimit         = 0x100000000
-	DefaultWeightCeiling       = 100
-	DefaultWeightFloor         = 0
-	DefaultWeightScalingFactor = 1.0
 	DefaultZMeanThreshold      = 1.0
 	DefaultZPredictionInterval = 5
 )
@@ -112,9 +100,6 @@ const (
 // configured, which will thereafter stop it from calling again.
 func (model *StatisticsModel) SetDefaultParams() {
 	model.XCountLimit = DefaultXCountLimit
-	model.WeightCeiling = DefaultWeightCeiling
-	model.WeightFloor = DefaultWeightFloor
-	model.WeightScalingFactor = DefaultWeightScalingFactor
 	model.ZMeanThreshold = DefaultZMeanThreshold
 	model.ZPredictionInterval = DefaultZPredictionInterval
 	model.ParamsSet = true
@@ -163,8 +148,8 @@ func (model *StatisticsModel) NewValue(value float64) {
 	} else {
 		model.XAdjustedMean = value
 	}
-	// Compute the weight score from the current data
-	model.calculateWeightScore()
+	// Compute the value from the current data
+	model.setResult()
 }
 
 // Takes a new value and adds it to the appropriate sum fields
@@ -274,39 +259,13 @@ func (model *StatisticsModel) handleZWindow() {
 	}
 }
 
-// Computes a weight score (e.g. a RIP weighting for HAProxy) based on
-// the parameters configured, which can be made to behave in various ways
-// based on application requirements. If the weight parameters are set
-// to default, this will return a score between 0-100 representing the
-// "positive" score (e.g. how "good" this node is to use). If the metric
-// in use is inverted (higher means worse), the InverseWeight switch
-// should be set in the model to true to accomplish this behaviour.
-func (model *StatisticsModel) calculateWeightScore() {
-	fraction := (model.XAdjustedMean / 100.0)
-	if fraction < 0.0 {
-		fraction = 0.0
-	} else if fraction > 1.0 {
-		fraction = 1.0
-	}
-	// Scale the value based on the range of the minimum and maximum
-	score := int64(math.Floor(fraction*float64(model.WeightCeiling-
-		model.WeightFloor))) + model.WeightFloor
-	if !model.InverseWeight {
-		score = model.WeightCeiling - score
-	}
-	model.weightScore = score
+func (model *StatisticsModel) setResult() {
+	model.LastResult = int64(math.Round(model.XAdjustedMean))
 }
 
 // Accessor for the weight score.
-func (model *StatisticsModel) GetAvailabilityScore() int64 {
-	// "Fail safe" to avoid offlining Real Servers in the event that we
-	// do not yet have enough data to provide a score, by returning
-	// the maximum score unless we have at least one observation.
-	if model.XCount < 1 {
-		return model.WeightCeiling
-	} else {
-		return model.weightScore
-	}
+func (model *StatisticsModel) GetResult() int64 {
+	return model.LastResult
 }
 
 // Returns whether or not this model has any data yet to calculate.

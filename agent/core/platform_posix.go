@@ -26,11 +26,15 @@
 package agent
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
 	"os/signal"
+	"strings"
 	"syscall"
+
+	"github.com/shirou/gopsutil/v3/net"
 )
 
 const (
@@ -38,12 +42,23 @@ const (
 	DefaultFilePermissions fs.FileMode = 0644
 
 	// Platform specific paths
-	ConfigDir = "/opt/lbfeedback"
-	LogDir    = "/var/log/lbfeedback"
+	DefaultConfigDir = "/opt/lbfeedback"
+	DefaultLogDir    = "/var/log/lbfeedback"
 
-	ExitStatusNormal     = 0
-	ExitStatusParamError = 1
+	ExitStatusNormal = 0
+	ExitStatusError  = 1
 )
+
+func PlatformMain() (exitStatus int) {
+	if len(os.Args) > 1 && strings.TrimSpace(os.Args[1]) == "run-agent" {
+		// We are in the agent daemon personality.
+		exitStatus = LaunchAgentService()
+	} else {
+		// We are in the API client personality.
+		exitStatus = RunClientCLI()
+	}
+	return
+}
 
 func (agent *FeedbackAgent) PlatformConfigureSignals() {
 	agent.systemSignals = make(chan os.Signal, 1)
@@ -54,12 +69,16 @@ func (agent *FeedbackAgent) PlatformConfigureSignals() {
 
 }
 
+func PlatformPrintRunInstructions() {
+	fmt.Println("To run the Agent (either interactively or from " +
+		"a startup script), \n" +
+		"  use the 'run-agent' command.")
+}
+
 func PlatformExecuteScript(fullPath string) (out string, err error) {
-	//logrus.Debug("PlatformExecuteScript: called")
 	var bytes []byte
 	bytes, err = exec.Command("bash", "-c", fullPath).Output()
 	out = string(bytes)
-	//logrus.Debug("PlatformExecuteScript: output=" + out)
 	return
 }
 
@@ -67,6 +86,19 @@ func PlatformOpenLogFile(fullPath string) (file *os.File, err error) {
 	file, err = os.OpenFile(fullPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY,
 		DefaultFilePermissions)
 	return
+}
+
+func PlatformGetConnnectionCount() (val int, err error) {
+	connList, err := net.Connections("all")
+	if err != nil {
+		return
+	}
+	val = len(connList)
+	return
+}
+
+func PlatformPrintHelpMessage() {
+	fmt.Println(HelpText)
 }
 
 // -------------------------------------------------------------------

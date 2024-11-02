@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/shirou/gopsutil/v3/cpu"
+	"github.com/shirou/gopsutil/v3/disk"
 	"github.com/shirou/gopsutil/v3/mem"
 	"github.com/sirupsen/logrus"
 )
@@ -65,16 +66,28 @@ type SystemMetric interface {
 	GetLoad() (val float64, err error)
 	GetMetricName() string
 	GetDescription() string
+	GetDefaultMax() float64
+	GetMinInterval() int
 }
 
-func NewMetric(metric string, params MetricParams) (mc SystemMetric, err error) {
+func NewMetric(metric string, params MetricParams, configPath string) (
+	mc SystemMetric, err error) {
 	switch metric {
 	case MetricTypeCPU:
 		mc = &CPUMetric{}
 	case MetricTypeRAM:
 		mc = &MemoryMetric{}
+	case MetricTypeDiskUsage:
+		mc = &DiskUsageMetric{}
+	case MetricTypeNetConnections:
+		mc = &NetConnectionsMetric{}
 	case MetricTypeScript:
-		mc = &ScriptMetric{}
+		// For security, the script path is not included with the
+		// [MetricParams] array so it can't be changed via the JSON
+		// or an API call; this is set from the agent config directory.
+		mc = &ScriptMetric{
+			ScriptPath: configPath,
+		}
 	default:
 		err = errors.New("unrecognised metric type: '" + metric + "'")
 		return
@@ -98,7 +111,9 @@ type CPUMetric struct {
 const (
 	MetricTypeCPU          = "cpu"
 	ParamKeySampleTime     = "sampling-ms"
-	CPUMetricMinSampleTime = 200
+	CPUMetricMinSampleTime = 500
+	CPUMetricDefaultMax    = 100
+	CPUMetricMinInterval   = 500
 )
 
 func (m *CPUMetric) Configure(params MetricParams) (err error) {
@@ -148,6 +163,10 @@ func (m *CPUMetric) GetLoad() (float64, error) {
 	}
 }
 
+func (m *CPUMetric) GetDefaultMax() float64 {
+	return CPUMetricDefaultMax
+}
+
 func (m *CPUMetric) GetMetricName() string {
 	return MetricTypeCPU
 }
@@ -156,13 +175,21 @@ func (m *CPUMetric) GetDescription() string {
 	return "CPU"
 }
 
+func (m *CPUMetric) GetMinInterval() int {
+	return CPUMetricMinInterval
+}
+
 // #################################
 // MemoryMetric
 // #################################
 
 type MemoryMetric struct{}
 
-const MetricTypeRAM = "ram"
+const (
+	MetricTypeRAM           = "ram"
+	MemoryMetricDefaultMax  = 100
+	MemoryMetricMinInterval = 500
+)
 
 func (m *MemoryMetric) Configure(params MetricParams) (err error) {
 	return
@@ -181,39 +208,47 @@ func (m *MemoryMetric) GetDescription() string {
 	return "RAM"
 }
 
+func (m *MemoryMetric) GetDefaultMax() float64 {
+	return MemoryMetricDefaultMax
+}
+
+func (m *MemoryMetric) GetMinInterval() int {
+	return MemoryMetricMinInterval
+}
+
 // #################################
 // ShellMetric
 // #################################
 
 type ScriptMetric struct {
-	scriptName     string
-	scriptFullPath string
+	ScriptName string
+	ScriptPath string
 }
 
-const MetricTypeScript = "script"
+const (
+	MetricTypeScript        = "script"
+	ScriptMetricDefaultMax  = 100
+	ScriptMetricMinInterval = 3000
+)
 
 func (m *ScriptMetric) Configure(params MetricParams) (err error) {
 	scriptName, err := GetParamValueString("script-name", params)
 	if err != nil {
 		return
 	}
-	scriptPath, err := GetParamValueString("script-path", params)
-	if err != nil {
-		return
-	}
-	m.scriptFullPath = path.Join(scriptPath, scriptName)
-	m.scriptName = scriptName
+	m.ScriptName = scriptName
 	return
 }
 
 func (m *ScriptMetric) GetLoad() (val float64, err error) {
 	var output string
-	output, err = PlatformExecuteScript(m.scriptFullPath)
+	output, err = PlatformExecuteScript(path.Join(m.ScriptPath,
+		m.ScriptName))
 	if err == nil {
 		output = strings.TrimSpace(output)
-		var parsedInt float64
-		parsedInt, err = strconv.ParseFloat(output, 64)
-		val = float64(parsedInt)
+		var parsed float64
+		parsed, err = strconv.ParseFloat(output, 64)
+		val = float64(parsed)
 	}
 	return
 }
@@ -223,7 +258,103 @@ func (m *ScriptMetric) GetMetricName() string {
 }
 
 func (m *ScriptMetric) GetDescription() string {
-	return "script '" + m.scriptName + "'"
+	return "script '" + m.ScriptName + "'"
+}
+
+func (m *ScriptMetric) GetDefaultMax() float64 {
+	return ScriptMetricDefaultMax
+}
+func (m *ScriptMetric) GetMinInterval() int {
+	return ScriptMetricMinInterval
+}
+
+// #################################
+// DiskUsageMetric
+// #################################
+
+type DiskUsageMetric struct {
+	DiskPath string
+}
+
+const (
+	MetricTypeDiskUsage  = "disk-usage"
+	DiskUsageDefaultMax  = 100
+	DiskUsageMinInterval = 3000
+)
+
+func (m *DiskUsageMetric) Configure(params MetricParams) (err error) {
+	diskPath, err := GetParamValueString("path", params)
+	if err != nil {
+		return
+	}
+	m.DiskPath = diskPath
+	return
+}
+
+func (m *DiskUsageMetric) GetLoad() (val float64, err error) {
+	stats, err := disk.Usage(m.DiskPath)
+	if err != nil {
+		return
+	}
+	val = stats.UsedPercent
+	return
+}
+
+func (m *DiskUsageMetric) GetMetricName() string {
+	return MetricTypeDiskUsage
+}
+
+func (m *DiskUsageMetric) GetDescription() string {
+	return "disk-usage, path '" + m.DiskPath + "'"
+}
+
+func (m *DiskUsageMetric) GetDefaultMax() float64 {
+	return DiskUsageDefaultMax
+}
+
+func (m *DiskUsageMetric) GetMinInterval() int {
+	return DiskUsageMinInterval
+}
+
+// #################################
+// NetConnectionsMetric
+// #################################
+
+type NetConnectionsMetric struct{}
+
+const (
+	MetricTypeNetConnections  = "netconn"
+	NetConnectionsDefaultMax  = 2000
+	NetConnectionsMinInterval = 3000
+)
+
+func (m *NetConnectionsMetric) Configure(params MetricParams) (err error) {
+	return
+}
+
+func (m *NetConnectionsMetric) GetLoad() (val float64, err error) {
+	intVal, err := PlatformGetConnnectionCount()
+	if err != nil {
+		return
+	}
+	val = float64(intVal)
+	return
+}
+
+func (m *NetConnectionsMetric) GetMetricName() string {
+	return MetricTypeNetConnections
+}
+
+func (m *NetConnectionsMetric) GetDescription() string {
+	return "netconn"
+}
+
+func (m *NetConnectionsMetric) GetDefaultMax() float64 {
+	return NetConnectionsDefaultMax
+}
+
+func (m *NetConnectionsMetric) GetMinInterval() int {
+	return NetConnectionsMinInterval
 }
 
 // -------------------------------------------------------------------

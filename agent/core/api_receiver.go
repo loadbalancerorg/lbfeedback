@@ -58,12 +58,14 @@ func UnmarshalAPIRequest(requestJSON string) (request *APIRequest, err error) {
 }
 
 // Performs basic initial sanity checks of an API request.
-func (agent *FeedbackAgent) ValidateAPIRequest(request *APIRequest) (errID string, errMsg string) {
+func (agent *FeedbackAgent) ValidateAPIRequest(request *APIRequest) (errID string,
+	errMsg string) {
 	if request == nil {
 		errID = "bad-json"
 		errMsg = "could not read JSON"
-	} else if (request.Service == "monitor" || request.Service == "responder") &&
-		request.Name == "" {
+	} else if (request.Type == "monitor" ||
+		request.Type == "responder") &&
+		request.TargetName == "" {
 		errID = "missing-target"
 		errMsg = "no target service name specified"
 	} else if request.APIKey == "" || request.APIKey != agent.APIKey {
@@ -79,7 +81,7 @@ func (agent *FeedbackAgent) ProcessAPIRequest(request *APIRequest, parseErr erro
 	// -- Perform required initialisation and validation.
 	// Build boilerplate for the API response.
 	response = &APIResponse{
-		APIName: APIName,
+		APIName: AppIdentifier,
 		Version: VersionString,
 		Tag:     RandomHexBytes(4),
 	}
@@ -104,110 +106,18 @@ func (agent *FeedbackAgent) ProcessAPIRequest(request *APIRequest, parseErr erro
 	if response.Error != "" {
 		return
 	}
+	request.Type = strings.TrimSpace(request.Type)
+	request.Action = strings.TrimSpace(request.Action)
+	request.TargetName = strings.TrimSpace(request.TargetName)
 	// -- The main API command tree.
 	// This default error will be overriden by nil or another error
 	// if a matching part of the tree is reached.
-	unknownType := false
-	suppressLog := false
 	desc := BuildAPIDescription(request)
-	var err error
-	switch request.Action {
-	// status: Returns the status of all services as a list.
-	case "status":
-		response.ServiceStatus = agent.GetServiceStatusArray()
-		suppressLog = true
-	// add: Creates a service within the Feedback Agent.
-	case "add":
-		switch request.Service {
-		// monitor: Creates a monitor with the given parameters.
-		case "monitor":
-			err = agent.APIHandleAddMonitor(request)
-		// responder: Creates a responder with the given parameters.
-		case "responder":
-			err = agent.APIHandleAddResponder(request)
-		default:
-			unknownType = true
-		}
-	// edit: Modifies a service within the Feedback Agent.
-	case "edit":
-		switch request.Service {
-		case "monitor":
-			err = agent.APIHandleModifyMonitor(request)
-		case "responder":
-			err = agent.APIHandleModifyResponder(request)
-		default:
-			unknownType = true
-		}
-	// delete: Deletes a service within the Feedback Agent.
-	case "delete":
-		switch request.Service {
-		case "monitor":
-			err = agent.APIHandleDeleteMonitor(request)
-		case "responder":
-			err = agent.APIHandleDeleteResponder(request)
-		default:
-			unknownType = true
-		}
-	case "start":
-		switch request.Service {
-		case "monitor":
-			err = agent.APIHandleStartMonitor(request)
-		case "responder":
-			err = agent.APIHandleStartResponder(request)
-		default:
-			unknownType = true
-		}
-	case "stop":
-		switch request.Service {
-		case "monitor":
-			err = agent.APIHandleStopMonitor(request)
-		case "responder":
-			err = agent.APIHandleStopResponder(request)
-		case "agent":
-			err = agent.StopAllServices()
-			quitAfterResponding = true
-		default:
-			unknownType = true
-		}
-	case "restart":
-		switch request.Service {
-		case "monitor":
-			err = agent.APIHandleRestartMonitor(request)
-		case "responder":
-			err = agent.APIHandleRestartResponder(request)
-		case "agent":
-			err = agent.RestartAllServices()
-		default:
-			unknownType = true
-		}
-	// save-config: Force saves the agent config to the config file.
-	case "save-config":
-		agent.unsavedChanges = true
-	// get-config: Gets the entire configuration of the agent.
-	case "get-config":
-		response.AgentConfig = agent
-		suppressLog = true
-	case "get-feedback":
-		response.Output, err = agent.APIHandleGetFeedback(request)
-		suppressLog = true
-	case "haproxy-enable":
-		err = agent.APIHandleEnableCommands(request)
-	case "haproxy-disable":
-		err = agent.APIHandleDisableCommands(request)
-	case "haproxy-up":
-		err = agent.APIHandleManualUp(request)
-	case "haproxy-down":
-		err = agent.APIHandleManualDown(request)
-	case "haproxy-clear":
-		err = agent.APIHandleManualClear(request)
-	case "haproxy-set-threshold":
-		err = agent.APIHandleSetThreshold(request)
-	default:
-		err = errors.New("invalid action specified")
-	}
+	unknownType, suppressLog, quitAfterResponding, err :=
+		agent.apiActionTree(request, response)
 	// Generate errors for an unknown service type.
 	if unknownType {
-		err = errors.New("invalid service '" + request.Service + "'")
+		err = errors.New("invalid action type '" + request.Type + "'")
 	}
 	// Handle any unsaved changes after the API tree.
 	if agent.unsavedChanges {
@@ -223,7 +133,7 @@ func (agent *FeedbackAgent) ProcessAPIRequest(request *APIRequest, parseErr erro
 	// Handle any errors that have occurred.
 	if err != nil {
 		response.Error = "api-error"
-		response.Message += "error: " + desc + ": " + err.Error()
+		response.Message += "failed: " + desc + ": " + err.Error()
 		if !suppressLog {
 			logrus.Error(apiLogHead + response.Message)
 		}
@@ -237,6 +147,82 @@ func (agent *FeedbackAgent) ProcessAPIRequest(request *APIRequest, parseErr erro
 	}
 	// Hide API key in confirmation of request to the client
 	response.Request.APIKey = ""
+	return
+}
+
+func (agent *FeedbackAgent) apiActionTree(request *APIRequest, response *APIResponse) (
+	unknownType bool, suppressLog bool, quitAfterResponding bool, err error) {
+	switch request.Action {
+	// Service actions
+	case "add", "edit", "delete", "start", "restart", "stop":
+		request.TargetName = strings.TrimSpace(request.TargetName)
+		if request.TargetName == "" {
+			err = errors.New("no target name specified")
+			return
+		}
+		switch request.Type {
+		case "monitor":
+			err = agent.APIHandleMonitorRequest(request)
+		case "responder":
+			err = agent.APIHandleResponderRequest(request)
+		case "source":
+			err = agent.APIHandleSourceRequest(request)
+		case "agent":
+			switch request.Action {
+			case "restart":
+				err = agent.RestartAllServices()
+			case "stop":
+				quitAfterResponding = true
+			default:
+				unknownType = true
+			}
+		default:
+			unknownType = true
+		}
+	case "status":
+		response.ServiceStatus = agent.GetServiceStatusArray()
+		suppressLog = true
+	case "get":
+		switch request.Type {
+		case "config":
+			response.AgentConfig = agent
+			suppressLog = true
+		case "feedback":
+			response.Output, err =
+				agent.APIHandleGetFeedback(request)
+			suppressLog = true
+		case "sources":
+			response.FeedbackSources, err =
+				agent.APIHandleGetSources(request)
+			suppressLog = true
+		default:
+			unknownType = true
+		}
+	case "set":
+		switch request.Type {
+		case "commands", "cmd":
+			err = agent.APIHandleSetCommands(request, true)
+		case "cmd-threshold":
+			err = agent.APIHandleSetThreshold(request)
+		case "cmd-interval":
+			err = agent.APIHandleSetInterval(request)
+		default:
+			unknownType = true
+		}
+	case "force":
+		switch request.Type {
+		case "online":
+			err = agent.APIHandleSetOnlineState(request, true)
+		case "offline":
+			err = agent.APIHandleSetOnlineState(request, false)
+		case "save-config":
+			agent.unsavedChanges = true
+		default:
+			unknownType = true
+		}
+	default:
+		err = errors.New("invalid action specified")
+	}
 	return
 }
 
@@ -290,13 +276,13 @@ func (agent *FeedbackAgent) GetAgentStatusString() (status string) {
 func BuildAPIDescription(request *APIRequest) (desc string) {
 	desc = "(no action)"
 	if request.Action != "" {
-		desc = request.Action
+		desc = "action '" + request.Action + "'"
 	}
-	if request.Service != "" {
-		desc += " " + request.Service
+	if request.Type != "" {
+		desc += ", type '" + request.Type + "'"
 	}
-	if request.Name != "" {
-		desc += " " + request.Name
+	if request.TargetName != "" {
+		desc += ", target name '" + request.TargetName + "'"
 	}
 	return
 }
@@ -305,7 +291,7 @@ func BuildAPIDescription(request *APIRequest) (desc string) {
 // API action handlers
 // ----------------------------------------
 
-func (agent *FeedbackAgent) APIHandleAddMonitor(request *APIRequest) (err error) {
+func (agent *FeedbackAgent) APIAddMonitor(request *APIRequest) (err error) {
 	metricType := ""
 	if request.MetricType != nil {
 		metricType = *request.MetricType
@@ -314,19 +300,16 @@ func (agent *FeedbackAgent) APIHandleAddMonitor(request *APIRequest) (err error)
 		return
 	}
 	interval := 0
-	if request.Interval != nil {
-		interval = *request.Interval
-	} else {
-		err = errors.New("interval not specified")
-		return
+	if request.MetricInterval != nil {
+		interval = *request.MetricInterval
 	}
 	params := MetricParams{}
-	if request.Params != nil {
-		params = *request.Params
+	if request.MetricParams != nil {
+		params = *request.MetricParams
 	}
 	// Try to add this as a new [SystemMonitor].
 	err = agent.AddMonitor(
-		request.Name,
+		request.TargetName,
 		metricType,
 		interval,
 		params,
@@ -336,25 +319,17 @@ func (agent *FeedbackAgent) APIHandleAddMonitor(request *APIRequest) (err error)
 		return
 	}
 	// Attempt to start the new monitor.
-	err = agent.StartMonitorByName(request.Name)
+	err = agent.StartMonitorByName(request.TargetName)
 	// If this failed, remove the new monitor and concatenate the errors.
 	if err != nil {
-		deleteErr := agent.DeleteMonitorByName(request.Name)
+		deleteErr := agent.DeleteMonitorByName(request.TargetName)
 		err = errors.Join(err, deleteErr)
 		return
 	}
 	agent.unsavedChanges = true
 	return
 }
-
-func (agent *FeedbackAgent) APIHandleAddResponder(request *APIRequest) (err error) {
-	sourceMonitorName := ""
-	if request.SourceMonitorName != nil {
-		sourceMonitorName = *request.SourceMonitorName
-	} else {
-		err = errors.New("source monitor not specified")
-		return
-	}
+func (agent *FeedbackAgent) APIAddResponder(request *APIRequest) (err error) {
 	protocolName := ""
 	if request.ProtocolName != nil {
 		protocolName = *request.ProtocolName
@@ -376,23 +351,28 @@ func (agent *FeedbackAgent) APIHandleAddResponder(request *APIRequest) (err erro
 		err = errors.New("listen port not specified")
 		return
 	}
-	hapCommands := false
-	if request.HAProxyCommands != nil {
-		hapCommands = *request.HAProxyCommands
-	}
 	hapThreshold := 0
-	if request.HAProxyThreshold != nil {
-		hapThreshold = *request.HAProxyThreshold
+	if request.ThresholdScore != nil {
+		hapThreshold = *request.ThresholdScore
+	}
+	enableThreshold := false
+	if request.ThresholdEnabled != nil {
+		enableThreshold = *request.ThresholdEnabled
+	}
+	hapCommands := ""
+	if request.CommandList != nil {
+		hapCommands = *request.CommandList
 	}
 	// Try to add this as a new [FeedbackResponder]. The AddResponder() function will
 	// look for and find the object for the [SystemMonitor] if it exists.
 	err = agent.AddResponder(
-		request.Name,
-		sourceMonitorName,
+		request.TargetName,
+		*request.FeedbackSources,
 		protocolName,
 		ipAddress,
 		listenPort,
 		hapCommands,
+		enableThreshold,
 		hapThreshold,
 	)
 	// If we couldn't add the responder (e.g. because the monitor doesn't exist),
@@ -401,10 +381,10 @@ func (agent *FeedbackAgent) APIHandleAddResponder(request *APIRequest) (err erro
 		return
 	}
 	// Attempt to start the new responder.
-	err = agent.StartResponderByName(request.Name)
+	err = agent.StartResponderByName(request.TargetName)
 	// If this failed, remove the new responder and concatenate the errors.
 	if err != nil {
-		deleteErr := agent.DeleteResponderByName(request.Name)
+		deleteErr := agent.DeleteResponderByName(request.TargetName)
 		err = errors.Join(err, deleteErr)
 		return
 	}
@@ -412,9 +392,10 @@ func (agent *FeedbackAgent) APIHandleAddResponder(request *APIRequest) (err erro
 	return
 }
 
-func (agent *FeedbackAgent) APIHandleModifyMonitor(request *APIRequest) (err error) {
+func (agent *FeedbackAgent) APIEditMonitor(request *APIRequest) (err error) {
+	name := request.TargetName
 	// Fetch the monitor this request refers to (if any, otherwise error).
-	oldMonitor, err := agent.GetMonitorByName(request.Name)
+	oldMonitor, err := agent.GetMonitorByName(name)
 	if err != nil {
 		return
 	}
@@ -425,12 +406,12 @@ func (agent *FeedbackAgent) APIHandleModifyMonitor(request *APIRequest) (err err
 		newMonitor.MetricType = *request.MetricType
 		changed = true
 	}
-	if request.Interval != nil {
-		newMonitor.Interval = *request.Interval
+	if request.MetricInterval != nil {
+		newMonitor.Interval = *request.MetricInterval
 		changed = true
 	}
-	if request.Params != nil {
-		newMonitor.Params = *request.Params
+	if request.MetricParams != nil {
+		newMonitor.Params = *request.MetricParams
 		changed = true
 	}
 	if !changed {
@@ -443,7 +424,7 @@ func (agent *FeedbackAgent) APIHandleModifyMonitor(request *APIRequest) (err err
 		return
 	}
 	// This is valid, so replace it in the list of monitors.
-	agent.Monitors[request.Name] = &newMonitor
+	agent.Monitors[request.TargetName] = &newMonitor
 	// Preserve the current run state during the swap.
 	wasRunning := oldMonitor.IsRunning()
 	if wasRunning {
@@ -458,64 +439,63 @@ func (agent *FeedbackAgent) APIHandleModifyMonitor(request *APIRequest) (err err
 	}
 	// Search and swap this monitor for any Responders using it.
 	for _, responder := range agent.Responders {
-		if responder.SourceMonitorName == newMonitor.Name {
-			responder.SwapMonitorWith(&newMonitor)
+		_, exists := responder.FeedbackSources[name]
+		if exists {
+			responder.FeedbackSources[name].Monitor = &newMonitor
 		}
 	}
 	agent.unsavedChanges = true
 	return
 }
 
-func (agent *FeedbackAgent) APIHandleModifyResponder(request *APIRequest) (err error) {
+func (agent *FeedbackAgent) APIModifyResponder(request *APIRequest) (err error) {
 	// Fetch the responder that this pertains to (otherwise, an error occurs).
-	oldResponder, err := agent.GetResponderByName(request.Name)
+	oldResponder, err := agent.GetResponderByName(request.TargetName)
 	if err != nil {
 		return
 	}
 	// Copy the old monitor so that we can apply the changes to it.
 	newResponder := oldResponder.Copy()
-	// Apply the new config changes for those JSON keys that are set.
-	//config := request.ResponderConfig
-	if request.SourceMonitorName != nil {
-		if request.Name == "api" {
-			err = errors.New("API responders cannot have a monitor")
-			return
-		}
-		monName := *request.SourceMonitorName
-		var mon *SystemMonitor
-		mon, err = agent.GetMonitorByName(monName)
-		if err != nil {
-			// Monitor name does not exist; error
-			return
-		}
-		newResponder.SourceMonitorName = monName
-		newResponder.SourceMonitor = mon
-	}
 	// Process JSON pointer fields (to determine if they were set or not).
+	if request.FeedbackSources != nil {
+		newResponder.FeedbackSources = *request.FeedbackSources
+	}
 	if request.ProtocolName != nil {
-		if request.Name == "api" {
-			err = errors.New("API responders do not have a configurable protocol")
+		if request.TargetName == "api" {
+			err = errors.New("API responders do not have a configurable " +
+				"protocol")
 			return
 		}
-		newResponder.ProtocolName = *request.ProtocolName
+		newResponder.ProtocolName =
+			*request.ProtocolName
 	}
 	if request.ListenIPAddress != nil {
-		newResponder.ListenIPAddress = *request.ListenIPAddress
+		newResponder.ListenIPAddress =
+			*request.ListenIPAddress
 	}
 	if request.ListenPort != nil {
-		newResponder.ListenPort = *request.ListenPort
+		newResponder.ListenPort =
+			*request.ListenPort
 	}
 	if request.RequestTimeout != nil {
-		newResponder.RequestTimeout = time.Duration(*request.RequestTimeout)
+		newResponder.RequestTimeout =
+			time.Duration(*request.RequestTimeout)
 	}
 	if request.ResponseTimeout != nil {
-		newResponder.ResponseTimeout = time.Duration(*request.ResponseTimeout)
+		newResponder.ResponseTimeout =
+			time.Duration(*request.ResponseTimeout)
 	}
-	if request.HAProxyCommands != nil {
-		newResponder.HAProxyCommands = *request.HAProxyCommands
+	if request.ThresholdEnabled != nil {
+		newResponder.ThresholdEnabled =
+			*request.ThresholdEnabled
 	}
-	if request.HAProxyThreshold != nil {
-		newResponder.HAProxyThreshold = *request.HAProxyThreshold
+	if request.ThresholdScore != nil {
+		newResponder.ThresholdScore =
+			*request.ThresholdScore
+	}
+	if request.FeedbackSources != nil {
+		newResponder.FeedbackSources =
+			*request.FeedbackSources
 	}
 	// Attempt to initialise the new monitor to validate it, else error.
 	err = newResponder.Initialise()
@@ -523,7 +503,7 @@ func (agent *FeedbackAgent) APIHandleModifyResponder(request *APIRequest) (err e
 		return
 	}
 	// This is valid, so replace it in the list of monitors.
-	agent.Responders[request.Name] = &newResponder
+	agent.Responders[request.TargetName] = &newResponder
 	// Preserve the current run state during the swap.
 	wasRunning := oldResponder.IsRunning()
 	if wasRunning {
@@ -533,21 +513,26 @@ func (agent *FeedbackAgent) APIHandleModifyResponder(request *APIRequest) (err e
 		}
 		err = newResponder.Start()
 	}
+	if err != nil {
+		return
+	}
 	agent.unsavedChanges = true
 	return
 }
 
-func (agent *FeedbackAgent) APIHandleDeleteResponder(request *APIRequest) (err error) {
-	if request.Name == "api" {
+func (agent *FeedbackAgent) APIDeleteResponder(request *APIRequest) (
+	err error) {
+	if request.TargetName == "api" {
 		err = errors.New("cannot delete the API Responder")
 		return
 	}
-	err = agent.DeleteResponderByName(request.Name)
+	err = agent.DeleteResponderByName(request.TargetName)
 	return
 }
 
-func (agent *FeedbackAgent) APIHandleDeleteMonitor(request *APIRequest) (err error) {
-	name := request.Name
+func (agent *FeedbackAgent) APIDeleteMonitor(request *APIRequest) (
+	err error) {
+	name := request.TargetName
 	// Fetch the monitor that this pertains to (otherwise, an error occurs).
 	mon, err := agent.GetMonitorByName(name)
 	if err != nil {
@@ -556,7 +541,8 @@ func (agent *FeedbackAgent) APIHandleDeleteMonitor(request *APIRequest) (err err
 	// Search for any responders attached to this monitor;
 	// fail if any currently in use.
 	for _, responder := range agent.Responders {
-		if responder.SourceMonitorName == name {
+		_, exists := responder.FeedbackSources[name]
+		if exists {
 			err = errors.New("cannot delete monitor '" + name +
 				"': currently in use by responder '" +
 				responder.ResponderName)
@@ -565,64 +551,114 @@ func (agent *FeedbackAgent) APIHandleDeleteMonitor(request *APIRequest) (err err
 	}
 	// Not currently in use; go ahead and delete it, stopping it first
 	// if it's running.
-	err = mon.Stop()
+	if mon.IsRunning() {
+		err = mon.Stop()
+		if err != nil {
+			return
+		}
+	}
+	err = agent.DeleteMonitorByName(name)
 	if err != nil {
 		return
 	}
-	err = agent.DeleteMonitorByName(name)
+	agent.unsavedChanges = true
 	return
 }
 
-func (agent *FeedbackAgent) APIHandleStartResponder(request *APIRequest) (err error) {
-	res, err := agent.GetResponderByName(request.Name)
-	if err == nil {
+func (agent *FeedbackAgent) APIHandleResponderRequest(request *APIRequest) (
+	err error) {
+	if request.Action == "add" {
+		err = agent.APIAddResponder(request)
+		return
+	}
+	res, err := agent.GetResponderByName(request.TargetName)
+	if err != nil {
+		return
+	}
+	switch request.Action {
+	case "edit":
+		err = agent.APIModifyResponder(request)
+	case "delete":
+		err = agent.APIDeleteResponder(request)
+	case "start":
 		err = res.Start()
-	}
-	return
-}
-
-func (agent *FeedbackAgent) APIHandleStartMonitor(request *APIRequest) (err error) {
-	mon, err := agent.GetMonitorByName(request.Name)
-	if err == nil {
-		err = mon.Start()
-	}
-	return
-}
-
-func (agent *FeedbackAgent) APIHandleStopResponder(request *APIRequest) (err error) {
-	res, err := agent.GetResponderByName(request.Name)
-	if err == nil {
+	case "stop":
 		err = res.Stop()
-	}
-	return
-}
-
-func (agent *FeedbackAgent) APIHandleStopMonitor(request *APIRequest) (err error) {
-	mon, err := agent.GetMonitorByName(request.Name)
-	if err == nil {
-		err = mon.Stop()
-	}
-	return
-}
-
-func (agent *FeedbackAgent) APIHandleRestartResponder(request *APIRequest) (err error) {
-	res, err := agent.GetResponderByName(request.Name)
-	if err == nil {
+	case "restart":
 		err = res.Restart()
+	default:
+		err = errors.New("unknown action '" + request.Action + "'")
 	}
 	return
 }
 
-func (agent *FeedbackAgent) APIHandleRestartMonitor(request *APIRequest) (err error) {
-	mon, err := agent.GetMonitorByName(request.Name)
-	if err == nil {
+func (agent *FeedbackAgent) APIHandleMonitorRequest(request *APIRequest) (
+	err error) {
+	if request.Action == "add" {
+		err = agent.APIAddMonitor(request)
+		return
+	}
+	mon, err := agent.GetMonitorByName(request.TargetName)
+	if err != nil {
+		return
+	}
+	switch request.Action {
+	case "edit":
+		err = agent.APIEditMonitor(request)
+	case "delete":
+		err = agent.APIDeleteMonitor(request)
+	case "start":
+		err = mon.Start()
+	case "stop":
+		err = mon.Stop()
+	case "restart":
 		err = mon.Restart()
+	default:
+		err = errors.New("unknown action '" + request.Action + "'")
 	}
 	return
 }
 
-func (agent *FeedbackAgent) APIHandleGetFeedback(request *APIRequest) (feedback string, err error) {
-	res, err := agent.GetResponderByName(request.Name)
+func (agent *FeedbackAgent) APIHandleSourceRequest(request *APIRequest) (
+	err error) {
+	res, err := agent.GetResponderByName(request.TargetName)
+	if err != nil {
+		return
+	}
+	if request.SourceMonitorName == nil {
+		err = errors.New("no source monitor specified")
+		return
+	}
+	switch request.Action {
+	case "add":
+		err = res.AddFeedbackSource(*request.SourceMonitorName,
+			request.SourceSignificance, request.SourceMaxValue)
+	case "edit":
+		err = res.EditFeedbackSource(*request.SourceMonitorName,
+			request.SourceSignificance, request.SourceMaxValue)
+	case "delete":
+		err = res.DeleteFeedbackSource(*request.SourceMonitorName)
+	default:
+		err = errors.New("unknown action '" + request.Action + "'")
+		return
+	}
+	agent.unsavedChanges = true
+	return
+}
+
+func (agent *FeedbackAgent) APIHandleGetSources(request *APIRequest) (
+	sources map[string]*FeedbackSource, err error) {
+	res, err := agent.GetResponderByName(request.TargetName)
+	if err != nil {
+		return
+	}
+	sources = res.FeedbackSources
+	return
+}
+
+func (agent *FeedbackAgent) APIHandleGetFeedback(request *APIRequest) (
+	feedback string, err error) {
+	res, err := agent.GetResponderByName(request.TargetName)
 	if err == nil {
 		feedback, _ = res.GetResponse("")
 		feedback = strings.ReplaceAll(feedback, "\n", "")
@@ -630,63 +666,61 @@ func (agent *FeedbackAgent) APIHandleGetFeedback(request *APIRequest) (feedback 
 	return
 }
 
-func (agent *FeedbackAgent) APIHandleManualDown(request *APIRequest) (err error) {
-	res, err := agent.GetResponderByName(request.Name)
+func (agent *FeedbackAgent) APIHandleSetOnlineState(request *APIRequest,
+	isOnline bool) (err error) {
+	res, err := agent.GetResponderByName(request.TargetName)
 	if err != nil {
 		return
 	}
-	err = res.SetManualCommandDown()
+	res.SetHAPCommandState(isOnline, true)
 	return
 }
 
-func (agent *FeedbackAgent) APIHandleManualUp(request *APIRequest) (err error) {
-	res, err := agent.GetResponderByName(request.Name)
+func (agent *FeedbackAgent) APIHandleSetThreshold(request *APIRequest) (
+	err error) {
+	res, err := agent.GetResponderByName(request.TargetName)
 	if err != nil {
 		return
 	}
-	err = res.SetManualCommandUp()
-	return
-}
-
-func (agent *FeedbackAgent) APIHandleManualClear(request *APIRequest) (err error) {
-	res, err := agent.GetResponderByName(request.Name)
-	if err != nil {
+	changed := true
+	if request.ThresholdScore != nil {
+		res.ConfigureThresholdValue(*request.ThresholdScore)
+		changed = true
+	}
+	if request.ThresholdEnabled != nil {
+		res.ConfigureThresholdEnabled(*request.ThresholdEnabled)
+		changed = true
+	}
+	if !changed {
+		err = errors.New("no threshold parameters specified")
 		return
 	}
-	err = res.SetManualCommandClear()
-	return
-}
-
-func (agent *FeedbackAgent) APIHandleEnableCommands(request *APIRequest) (err error) {
-	res, err := agent.GetResponderByName(request.Name)
-	if err != nil {
-		return
-	}
-	err = res.SetManualCommands(true)
 	agent.unsavedChanges = true
 	return
 }
 
-func (agent *FeedbackAgent) APIHandleDisableCommands(request *APIRequest) (err error) {
-	res, err := agent.GetResponderByName(request.Name)
+func (agent *FeedbackAgent) APIHandleSetCommands(request *APIRequest,
+	replace bool) (err error) {
+	res, err := agent.GetResponderByName(request.TargetName)
 	if err != nil {
 		return
 	}
-	err = res.SetManualCommands(false)
+	err = res.ConfigureCommands(*request.CommandList, replace, false)
 	agent.unsavedChanges = true
 	return
 }
 
-func (agent *FeedbackAgent) APIHandleSetThreshold(request *APIRequest) (err error) {
-	res, err := agent.GetResponderByName(request.Name)
+func (agent *FeedbackAgent) APIHandleSetInterval(request *APIRequest) (
+	err error) {
+	res, err := agent.GetResponderByName(request.TargetName)
 	if err != nil {
 		return
 	}
-	if request.HAProxyThreshold == nil {
-		err = errors.New("no threshold specified")
+	if request.CommandInterval == nil {
+		err = errors.New("invalid command interval specified (use 0 for disabled)")
 		return
 	}
-	res.SetThreshold(*request.HAProxyThreshold)
+	res.ConfigureInterval(*request.CommandInterval)
 	agent.unsavedChanges = true
 	return
 }

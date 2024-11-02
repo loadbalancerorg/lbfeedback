@@ -40,7 +40,8 @@ type SystemMonitor struct {
 	MetricType    string           `json:"metric-type"`
 	Interval      int              `json:"interval-ms"`
 	Params        MetricParams     `json:"metric-config,omitempty"`
-	StatsModel    *StatisticsModel `json:"stats-config,omitempty"`
+	FilePath      string           `json:"-"`
+	StatsModel    *StatisticsModel `json:"-"`
 	SysMetric     SystemMetric     `json:"-"`
 	LastError     error            `json:"-"`
 	signalChannel chan int         `json:"-"`
@@ -51,17 +52,18 @@ type SystemMonitor struct {
 }
 
 const (
-	SystemMonitorMinInterval int = 200
+	MonitorWaitInterval = 100
 )
 
 func NewSystemMonitor(name string, metric string, interval int,
-	params MetricParams, model *StatisticsModel) (mon *SystemMonitor,
-	err error) {
+	params MetricParams, model *StatisticsModel, filePath string) (
+	mon *SystemMonitor, err error) {
 	mon = &SystemMonitor{
 		Name:          name,
 		Interval:      interval,
 		MetricType:    metric,
 		Params:        params,
+		FilePath:      filePath,
 		signalChannel: make(chan int),
 		statusChannel: make(chan int),
 	}
@@ -90,7 +92,7 @@ func (monitor *SystemMonitor) Initialise() (err error) {
 		monitor.StatsModel.SetDefaultParams()
 	}
 	monitor.SysMetric, err = NewMetric(monitor.MetricType,
-		monitor.Params)
+		monitor.Params, monitor.FilePath)
 	if err != nil {
 		err = errors.New("failed to initialise monitor '" +
 			monitor.Name + "': " + err.Error())
@@ -139,8 +141,6 @@ func (monitor *SystemMonitor) Stop() (err error) {
 				stopped = true
 			}
 		}
-	} else {
-		err = errors.New("monitor is not running")
 	}
 	return
 }
@@ -187,6 +187,7 @@ func (monitor *SystemMonitor) run(initChannel chan int) {
 	monitor.signalChannel = make(chan int)
 	initChannel <- ServiceStateRunning
 	metricFailed := false
+	timeWaited := 0
 	for monitor.runState {
 		select {
 		case msg := <-monitor.signalChannel:
@@ -199,32 +200,44 @@ func (monitor *SystemMonitor) run(initChannel chan int) {
 					strconv.Itoa(msg))
 			}
 		default:
-			// As we are still running, get a sample from our
-			// metric and pass it to the stats model, waiting
-			// for the required poll interval before iterating.
-			value, err := monitor.getMetricSample()
-			if err == nil {
-				monitor.StatsModel.NewValue(value)
-				if monitor.LastError != nil && metricFailed {
-					logrus.Info(monitor.getLogHead() +
-						"sampling has now succeeded; error cleared.")
-					metricFailed = false
-					monitor.LastError = nil
+			// So that we don't stall a service state change where a long
+			// sampling interval has been set for this monitor, we sleep
+			// for a constant, short wait interval and keep a timer to find
+			// out how long we've waited so far. Then, we perform the
+			// (possibly resource-hungry) metric sampling only when the
+			// longer monitor interval is exceeded. This allows start, stop
+			// and restart operations to take place without blocking.
+			if timeWaited >= monitor.Interval {
+				timeWaited = 0
+				// As we are still running, get a sample from our
+				// metric and pass it to the stats model, waiting
+				// for the required poll interval before iterating.
+				value, err := monitor.getMetricSample()
+				if err == nil {
+					monitor.StatsModel.NewValue(value)
+					if monitor.LastError != nil && metricFailed {
+						logrus.Info(monitor.getLogHead() +
+							"sampling has now succeeded; error cleared.")
+						metricFailed = false
+						monitor.LastError = nil
+					}
+				} else if monitor.LastError == nil {
+					logrus.Error(monitor.getLogHead() +
+						"failed to sample metric: " +
+						err.Error())
+					logrus.Warn("The above error will be logged only once.")
+					metricFailed = true
+					monitor.LastError = err
 				}
-			} else if monitor.LastError == nil {
-				logrus.Error(monitor.getLogHead() +
-					"failed to sample metric: " +
-					err.Error())
-				logrus.Warn("The above error will be logged only once.")
-				metricFailed = true
-				monitor.LastError = err
 			}
 			// Unlock the mutex during the wait, and lock
 			// after it has concluded as we are resuming.
 			monitor.mutex.Unlock()
-			time.Sleep(time.Duration(monitor.Interval *
+			time.Sleep(time.Duration(MonitorWaitInterval *
 				int(time.Millisecond)))
 			monitor.mutex.Lock()
+			// Increment the timer by the period that we just waited.
+			timeWaited += MonitorWaitInterval
 		}
 	}
 	monitor.sendStoppedStatus()
@@ -236,14 +249,15 @@ func (monitor *SystemMonitor) sendStoppedStatus() {
 }
 
 func (monitor *SystemMonitor) enforceInterval() {
-	if monitor.Interval < SystemMonitorMinInterval {
+	minInterval := monitor.SysMetric.GetMinInterval()
+	if monitor.Interval < minInterval {
 		logrus.Warn(
 			monitor.getLogHead() +
-				"invalid interval; using minimum of " +
-				strconv.Itoa(SystemMonitorMinInterval) +
+				"unspecified or invalid sampling interval; using minimum of " +
+				strconv.Itoa(minInterval) +
 				"ms.",
 		)
-		monitor.Interval = SystemMonitorMinInterval
+		monitor.Interval = minInterval
 	}
 }
 
@@ -258,10 +272,10 @@ func (monitor *SystemMonitor) getMetricSample() (value float64, err error) {
 	return
 }
 
-// Returns the current feedback weight for this monitor thread.
-func (monitor *SystemMonitor) CurrentAvailability() (result int64) {
+// Returns the current raw value for this monitor thread.
+func (monitor *SystemMonitor) CurrentValue() (result int64) {
 	monitor.mutex.Lock()
-	result = monitor.StatsModel.GetAvailabilityScore()
+	result = monitor.StatsModel.GetResult()
 	monitor.mutex.Unlock()
 	return result
 }

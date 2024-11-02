@@ -23,11 +23,12 @@
 package agent
 
 const (
-	VersionString       string = "5.2.1-beta"
+	VersionString       string = "5.3.0-beta"
 	ProtocolHTTP        string = "http"
 	ProtocolTCP         string = "tcp"
 	ProtocolAPI         string = "http-api"
-	APIName             string = "lbfeedback-api"
+	ApplicationName     string = "Loadbalancer.org Feedback Agent"
+	AppIdentifier       string = "lbfeedback"
 	ServiceStateStopped int    = 1
 	ServiceStateRunning int    = 2
 	ServiceStateFailed  int    = 3
@@ -35,10 +36,11 @@ const (
 	ConfigFileName      string = "agent-config.json"
 	LocalPathMode       bool   = false
 	CopyrightYear       string = "2024"
+	PanicDebug          bool   = false
 )
 
 var ShellBanner string = `
-     ▄ █           Loadbalancer.org Feedback Agent v` + VersionString + `
+     ▄ █           ` + ApplicationName + " v" + VersionString + `
      █ █ █▄▄       Copyright (C) ` + CopyrightYear + ` Loadbalancer.org Limited
      █ █ ▄ █       Licensed under the GNU General Public License v3
 
@@ -46,6 +48,67 @@ This program comes with ABSOLUTELY NO WARRANTY. This is free software, and
 you are welcome to redistribute it under certain conditions. For further
 information, please read the LICENSE file distributed with this program.
 `
+
+var HelpText string = `SYNTAX:
+  lbfeedback [action] [type] [parameters]
+
+ACTIONS:
+  run-agent: Runs the Agent interactively or from a startup script.
+ 
+All other Actions are followed by an Action Type, as follows:
+  add, edit, delete, start, restart, stop:
+     monitor, responder, source
+  get:
+     config, feedback, sources
+  set:
+     commands, cmd-threshold, cmd-interval
+  force:
+     online, offline, save-config
+
+Note that the running Agent service will automatically save any configuration
+changes to its JSON configuration file if they are successful, and no service
+restart is required as they are applied immediately.
+  
+PARAMETERS:
+  -name               Name identifier of a service.
+  -command-list       List of HAProxy commands to enable, space-separated.
+                      Example: -command-list up down
+                      These are automatically detected as pertaining to online
+                      or offline states. There are special options as follows:
+                      'none'    Disable all HAProxy commands.
+                      'default' Send 'drain' for offline, 'up ready' for online.
+  -protocol           Protocol name for a Responder. Options: 'tcp', 'http'.
+  -ip                 Listen IP address for a Responder.
+  -port               Port to listen on for a Responder.
+                      'any'     Listen on all ports for the specified IP.
+  -request-timeout    Request timeout (ms).
+  -response-timeout   Response timeout (ms).
+  -threshold-enabled  Enable HAProxy automatic command threshold (true/false).
+  -threshold-min      Minimum availability for an online state (percent).
+  -command-interval   Time interval to send HAProxy commands for (ms, 
+                      default 10000).
+  -monitor            Name identifier of a Monitor.
+  -significance       Significance value (floating-point; e.g. 1.0). This
+                      is converted into a Relative Significance by summing
+                      the significance of all sources within a Responder
+                      and calculating their ratio.
+  -max-value          Maximum value for a given metric against which to
+                      scale its availability.
+  -metric-type        Type of metric. Options: 'cpu', 'ram', 'disk-usage',
+                      'netconn', 'script'.
+  -metric-config      Key/value pairs for configuring a System Metric:
+                      Syntax: key=value,key=value
+
+EXAMPLES:
+   lbfeedback get config
+   lbfeedback add monitor -name ram -metric-type ram
+   lbfeedback add source -name default -monitor ram
+   lbfeedback force offline -name default
+                      
+Please note that this is an extremely brief outline of the available
+CLI configuration commands for controlling the Feedback Agent. For
+further information, please consult the accompanying documentation or
+contact Loadbalancer.org Support for assistance.`
 
 // -------------------------------------------------------------------
 // END OF FILE

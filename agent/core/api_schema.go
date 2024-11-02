@@ -23,42 +23,49 @@ package agent
 // Defines an [APIRequest] received from a client to the agent.
 type APIRequest struct {
 	// Global API request fields that apply to any request.
-	ID      int    `json:"id,omitempty"`
-	APIKey  string `json:"api-key,omitempty"`
-	Action  string `json:"action,omitempty"`
-	Service string `json:"service,omitempty"`
-	Name    string `json:"name,omitempty"`
+	APIKey     string `json:"api-key,omitempty"`
+	ID         int    `json:"id,omitempty"`
+	Action     string `json:"action,omitempty"`
+	Type       string `json:"type,omitempty"`
+	TargetName string `json:"target-name,omitempty"`
 
 	// API fields for [FeedbackResponder] operations.
-	SourceMonitorName *string `json:"monitor,omitempty"`
-	ProtocolName      *string `json:"protocol,omitempty"`
-	ListenIPAddress   *string `json:"ip,omitempty"`
-	ListenPort        *string `json:"port,omitempty"`
-	RequestTimeout    *int    `json:"request-timeout,omitempty"`
-	ResponseTimeout   *int    `json:"response-timeout,omitempty"`
-	// HAProxy command fields.
-	HAProxyCommands  *bool `json:"send-commands,omitempty"`
-	HAProxyThreshold *int  `json:"threshold-value,omitempty"`
+	ProtocolName     *string                     `json:"protocol,omitempty"`
+	ListenIPAddress  *string                     `json:"ip,omitempty"`
+	ListenPort       *string                     `json:"port,omitempty"`
+	FeedbackSources  *map[string]*FeedbackSource `json:"feedback-sources,omitempty"`
+	RequestTimeout   *int                        `json:"request-timeout,omitempty"`
+	ResponseTimeout  *int                        `json:"response-timeout,omitempty"`
+	CommandList      *string                     `json:"command-list,omitempty"`
+	CommandInterval  *int                        `json:"command-interval,omitempty"`
+	ThresholdEnabled *bool                       `json:"threshold-enabled,omitempty"`
+	ThresholdScore   *int                        `json:"threshold-min,omitempty"`
+
+	// API fields for [SourceMonitor] operations.
+	SourceMonitorName  *string  `json:"monitor"`
+	SourceSignificance *float64 `json:"significance"`
+	SourceMaxValue     *int64   `json:"max-value"`
 
 	// API fields for [SystemMonitor] operations.
-	MetricType *string       `json:"metric-type,omitempty"`
-	Interval   *int          `json:"interval-ms,omitempty"`
-	Params     *MetricParams `json:"metric-config,omitempty"`
+	MetricType     *string       `json:"metric-type,omitempty"`
+	MetricInterval *int          `json:"interval-ms,omitempty"`
+	MetricParams   *MetricParams `json:"metric-config,omitempty"`
 }
 
 // Defines an [APIResponse] to be sent from the agent to a client.
 type APIResponse struct {
-	APIName       string             `json:"service-name"`
-	Version       string             `json:"version"`
-	ID            *int               `json:"id,omitempty"`
-	Tag           string             `json:"tag,omitempty"`
-	Request       *APIRequest        `json:"request,omitempty"`
-	Success       bool               `json:"success"`
-	Output        string             `json:"output,omitempty"`
-	Error         string             `json:"error-name,omitempty"`
-	Message       string             `json:"message,omitempty"`
-	AgentConfig   *FeedbackAgent     `json:"current-config,omitempty"`
-	ServiceStatus []APIServiceStatus `json:"status,omitempty"`
+	APIName         string                     `json:"service-name"`
+	Version         string                     `json:"version"`
+	ID              *int                       `json:"id,omitempty"`
+	Tag             string                     `json:"tag,omitempty"`
+	Request         *APIRequest                `json:"request,omitempty"`
+	Success         bool                       `json:"success"`
+	Output          string                     `json:"output,omitempty"`
+	Error           string                     `json:"error-name,omitempty"`
+	Message         string                     `json:"message,omitempty"`
+	AgentConfig     *FeedbackAgent             `json:"current-config,omitempty"`
+	ServiceStatus   []APIServiceStatus         `json:"status,omitempty"`
+	FeedbackSources map[string]*FeedbackSource `json:"feedback-sources,omitempty"`
 }
 
 type APIServiceStatus struct {

@@ -56,7 +56,7 @@ type FeedbackAgent struct {
 
 // Creates a new [FeedbackAgent] service and runs it.
 func LaunchAgentService() (exitStatus int) {
-	// Print the masthead.
+	// Print the CLI masthead.
 	fmt.Println(ShellBanner)
 	// $$ TO DO: Pass errors from agent.Run() to show success/
 	// failure on the shell (not just in the logs).
@@ -72,11 +72,19 @@ func (agent *FeedbackAgent) Run() (exitStatus int) {
 	agent.InitialiseLogger()
 	agent.PlatformConfigureSignals()
 	agent.InitialisePaths()
+	logrus.Info("*** [Started] Loadbalancer.org Feedback Agent v" + VersionString)
+	exitStatus = agent.AgentMain()
+	logrus.Info("*** [Stopped] The Feedback Agent has terminated.")
+	return
+}
+
+func (agent *FeedbackAgent) AgentMain() (exitStatus int) {
 	// Try to load a configuration from a config file, or else set up
 	// the agent defaults.
 	err := agent.LoadOrCreateConfig()
 	if err != nil {
 		logrus.Error("Configuration of Feedback Agent services failed.")
+		exitStatus = ExitStatusError
 		return
 	}
 	// Set up file logging for this agent.
@@ -85,14 +93,13 @@ func (agent *FeedbackAgent) Run() (exitStatus int) {
 		logrus.Error("cannot log to file; file logging disabled: " + err.Error())
 	}
 	// Start the main functions of the agent.
-	logrus.Info("*** [Started] Loadbalancer.org Feedback Agent v" + VersionString)
 	err = agent.StartAllServices()
 	agent.isStarting = false
 	if err != nil {
 		// We weren't able to successfully run the agent.
 		logrus.Fatal("The Feedback Agent failed to launch due to an error. " +
 			"Please review the log output.")
-		exitStatus = ExitStatusParamError
+		exitStatus = ExitStatusError
 		return
 	}
 	// Otherwise, all seems to be well. Go into the event handle loop.
@@ -100,7 +107,7 @@ func (agent *FeedbackAgent) Run() (exitStatus int) {
 	agent.EventHandleLoop()
 	// If we're here, we've quit.
 	agent.StopAllServices()
-	logrus.Info("*** [Stopped] The Feedback Agent has terminated.")
+	exitStatus = ExitStatusNormal
 	return
 }
 
@@ -481,8 +488,8 @@ func CreateDirectoryIfMissing(dir string) (err error) {
 func (agent *FeedbackAgent) AddMonitor(name string, metric string,
 	interval int, params MetricParams, model *StatisticsModel) (
 	err error) {
-	mon, err := NewSystemMonitor("default", metric,
-		interval, params, model)
+	mon, err := NewSystemMonitor(name, metric,
+		interval, params, model, agent.ConfigDir)
 	if err != nil {
 		return
 	}
@@ -495,26 +502,48 @@ func (agent *FeedbackAgent) AddMonitor(name string, metric string,
 
 // Sets the default paths for this [FeedbackAgent]
 func (agent *FeedbackAgent) SetDefaultPaths() {
-	agent.ConfigDir = ConfigDir
-	agent.LogDir = LogDir
+	agent.ConfigDir = DefaultConfigDir
+	agent.LogDir = DefaultLogDir
 }
 
 // Sets up the agent with a default configuration consisting of one
 // CPU monitor and one HTTP responder, connected together.
 func (agent *FeedbackAgent) SetDefaultServiceConfig() (err error) {
 	agent.InitialiseServiceMaps()
-	err = agent.AddMonitor("default", MetricTypeCPU,
-		SystemMonitorMinInterval, nil, nil)
+	err = agent.AddMonitor("cpu", MetricTypeCPU,
+		CPUMetricMinInterval, nil, nil)
 	if err != nil {
 		logrus.Error("Error: " + err.Error())
 		return
 	}
-	err = agent.AddResponder("default", "default", ProtocolTCP, "*", "3333", false, 0)
+	apiResponder := FeedbackResponder{
+		ResponderName:   "api",
+		ProtocolName:    ProtocolAPI,
+		ListenIPAddress: "127.0.0.1",
+		ListenPort:      "3334",
+		FeedbackSources: nil,
+	}
+	err = agent.AddResponderObject(&apiResponder)
 	if err != nil {
 		logrus.Error("Error: " + err.Error())
 		return
 	}
-	err = agent.AddResponder("api", "", ProtocolAPI, "127.0.0.1", "3334", false, 0)
+	defaultSources := map[string]*FeedbackSource{
+		"cpu": {
+			Significance: 1.0,
+			MaxValue:     100,
+		},
+	}
+	defaultResponder := FeedbackResponder{
+		ResponderName:   "default",
+		ProtocolName:    ProtocolTCP,
+		ListenIPAddress: "*",
+		ListenPort:      "3333",
+		HAProxyCommands: HAPConfigDefault,
+		FeedbackSources: defaultSources,
+		CommandInterval: DefaultCommandInterval,
+	}
+	err = agent.AddResponderObject(&defaultResponder)
 	if err != nil {
 		logrus.Error("Error: " + err.Error())
 		return
@@ -592,22 +621,12 @@ func (agent *FeedbackAgent) configureFromObject(parsed *FeedbackAgent) (err erro
 		if err != nil {
 			return
 		}
-		err = monitor.Initialise()
-		if err != nil {
-			return
-		}
 	}
 	// Create responders from the parsed config.
 	for name, responder := range parsed.Responders {
-		err = agent.AddResponder(
-			name,
-			responder.SourceMonitorName,
-			responder.ProtocolName,
-			responder.ListenIPAddress,
-			responder.ListenPort,
-			responder.HAProxyCommands,
-			responder.HAProxyThreshold,
-		)
+		responder.ResponderName = name
+		responder.ParentAgent = agent
+		err = agent.AddResponderObject(responder)
 		if err != nil {
 			return
 		}
@@ -623,30 +642,47 @@ func (agent *FeedbackAgent) AddMonitorObject(monitor *SystemMonitor) (err error)
 			"': name already exists")
 		return
 	}
+	monitor.FilePath = agent.ConfigDir
+	err = monitor.Initialise()
+	if err != nil {
+		return
+	}
 	agent.Monitors[monitor.Name] = monitor
 	return
 }
 
-// Creates a Responder associated with a given Monitor, returning an
-// error if the Monitor does not exist.
-func (agent *FeedbackAgent) AddResponder(name string, monitorName string,
-	protocol string, ip string, port string, hapCommands bool, hapThreshold int) (err error) {
+func (agent *FeedbackAgent) AddResponderObject(responder *FeedbackResponder) (err error) {
+	name := responder.ResponderName
 	_, nameExists := agent.Responders[name]
 	if nameExists {
 		err = errors.New("cannot create responder '" + name +
 			"': name already exists")
 		return
 	}
-	monitor, monitorExists := agent.Monitors[monitorName]
-	if !monitorExists && protocol != ProtocolAPI {
+	responder.ParentAgent = agent
+	err = responder.Initialise()
+	if err != nil {
+		return
+	}
+	agent.Responders[name] = responder
+	return
+}
+
+// Creates a Responder associated with a given Monitor, returning an
+// error if the Monitor does not exist.
+func (agent *FeedbackAgent) AddResponder(name string,
+	sources map[string]*FeedbackSource, protocol string, ip string,
+	port string, hapCommands string, enableThreshold bool,
+	hapThreshold int) (err error) {
+	_, nameExists := agent.Responders[name]
+	if nameExists {
 		err = errors.New("cannot create responder '" + name +
-			"': assigned monitor '" + monitorName +
-			"' does not exist")
+			"': name already exists")
 		return
 	}
 	var responder *FeedbackResponder
-	responder, err = NewResponder(name, monitor, protocol,
-		ip, port, hapCommands, hapThreshold, agent)
+	responder, err = NewResponder(name, sources, protocol,
+		ip, port, hapCommands, enableThreshold, hapThreshold, agent)
 	if err != nil {
 		err = errors.New("cannot create responder '" + name +
 			"': " + err.Error())
@@ -660,6 +696,11 @@ func (agent *FeedbackAgent) AddResponder(name string, monitorName string,
 func (agent *FeedbackAgent) InitialiseServiceMaps() {
 	agent.Monitors = make(map[string]*SystemMonitor)
 	agent.Responders = make(map[string]*FeedbackResponder)
+}
+
+func RemoveExtraSpaces(str string) (result string) {
+	result = strings.Join(strings.Fields(str), " ")
+	return
 }
 
 // -------------------------------------------------------------------
