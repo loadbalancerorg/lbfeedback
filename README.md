@@ -34,16 +34,21 @@ The Loadbalancer.org Feedback Agent v5 is cross-platform and concurrent, written
 - You may wish to either use a separate terminal window so that you can view the real-time log events whilst testing with the CLI API client or send it to the background.
 - When run with `lbfeedback action` this launches the binary into the CLI client personality which allows it to send API commands to the running Agent. The Agent instance itself running in the background is responsible for updating the JSON configuration file and the CLI mode of the binary merely acts as an API client. The API key is fetched from the configuration file located at /opt/lbfeedback/agent-config.json to give the CLI personality of the binary the necessary credentials to access the agent API. The CLI Client personality does not require `sudo` privileges.
 - For initial MVP testing, simply check that the agent runs and creates a default configuration in /opt/lbfeedback. This should consist of:
-- - A TCP mode Responder with HAProxy commands disabled listening on all IPs on port 3333. Test this using Telnet to port 3333.
-- - An HTTP mode API Responder listening on 127.0.0.1 on port 3334. Test this using a Web browser.
-- - Run the agent interactively in a console window as above (as sudo), and in another console window (most convenient), try the following CLI client commands (no sudo required)
-- - `lbfeedback action get-feedback -name default`
-- - `lbfeedback action get-config`
-- - `lbfeedback action status`
-- - `lbfeedback action haproxy-enable -name default` (now observe the HAProxy command in telnet and `get-feedback`)
-- - `lbfeedback action haproxy-down -name default` (observe it now sends `down` in telnet)
-- - `lbfeedback action haproxy-clear -name default` (observe it now sends `up` again)
-
+  - A TCP mode Responder with HAProxy commands disabled listening on all IPs on port 3333. Test this using Telnet to port 3333.
+  - An HTTP mode API Responder listening on 127.0.0.1 on port 3334. Test this using a Web browser.
+  - Run the agent interactively in a console window as above (as sudo), and in another console window (most convenient), try the following CLI client commands (no sudo required)
+  - `lbfeedback action get-feedback -name default`
+  - `lbfeedback action get-config`
+  - `lbfeedback action status`
+  - `lbfeedback action haproxy-enable -name default` (now observe the HAProxy command in telnet and `get-feedback`)
+  - `lbfeedback action haproxy-down -name default` (observe it now sends `down` in telnet)
+  - `lbfeedback action haproxy-clear -name default` (observe it now sends `up` again)
+  - `lbfeedback action haproxy-set-threshold -name default -threshold-value 80` (use `stress` or similar to increase CPU utilisation and observe that `down` is sent >20% CPU)
+  - There are more commands available and working in the API/agent (but for which the docs don't yet exist), including:
+    - Adding, editing, deleting, stopping and starting Responders and Monitors
+    - Script type monitors
+    - The ability to change the IP address and port of the API
+    - Stopping and starting the agent from the CLI
 ## Release Notes, Known Issues and To Do
 
 ## v5.2.1-beta (2024-10-21)
