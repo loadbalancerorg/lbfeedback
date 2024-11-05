@@ -49,16 +49,17 @@ const (
 // from data obtained via the associated [SystemMonitor] objects.
 type FeedbackResponder struct {
 	// JSON configuration fields for [FeedbackResponder].
-	ProtocolName     string                     `json:"protocol"`
-	ListenIPAddress  string                     `json:"ip"`
-	ListenPort       string                     `json:"port"`
-	FeedbackSources  map[string]*FeedbackSource `json:"feedback-sources,omitempty"`
-	RequestTimeout   time.Duration              `json:"request-timeout,omitempty"`
-	ResponseTimeout  time.Duration              `json:"response-timeout,omitempty"`
-	HAProxyCommands  string                     `json:"haproxy-commands,omitempty"`
-	CommandInterval  int                        `json:"command-interval,omitempty"`
-	ThresholdEnabled bool                       `json:"threshold-enabled,omitempty"`
-	ThresholdScore   int                        `json:"threshold-score,omitempty"`
+	ProtocolName          string                     `json:"protocol"`
+	ListenIPAddress       string                     `json:"ip"`
+	ListenPort            string                     `json:"port"`
+	FeedbackSources       map[string]*FeedbackSource `json:"feedback-sources,omitempty"`
+	RequestTimeout        time.Duration              `json:"request-timeout,omitempty"`
+	ResponseTimeout       time.Duration              `json:"response-timeout,omitempty"`
+	HAProxyCommands       string                     `json:"haproxy-commands,omitempty"`
+	CommandInterval       int                        `json:"command-interval,omitempty"`
+	ThresholdEnabled      bool                       `json:"threshold-enabled,omitempty"`
+	ThresholdScore        int                        `json:"threshold-score,omitempty"`
+	EnableOfflineInterval bool                       `json:"enable-offline-interval,omitempty"`
 
 	// Internal configuration fields.
 	ResponderName string            `json:"-"`
@@ -75,10 +76,11 @@ type FeedbackResponder struct {
 	commandEnumOrder []int          `json:"-"`
 
 	// The last command state (online or offline) seen.
-	lastCommandState bool `json:"-"`
+	onlineState bool `json:"-"`
 
 	// Current HAProxy commands that are enabled for this responder.
-	commandMask int `json:"-"`
+	configCommandMask int `json:"-"`
+	overrideMask      int `json:"-"`
 
 	// If DisableCommandInterval is false, the timestamp when the current
 	// state expires (and is therefore no longer sent in responses).
@@ -125,8 +127,8 @@ const (
 	// As per the previous Loadbalancer.org Feedback Agent, the
 	// default online command is "up ready" and the default
 	// command to offline is "drain" (as requested by MT).
-	HAPEnumDefaultOnline  = HAPEnumUp | HAPEnumReady
-	HAPEnumDefaultOffline = HAPEnumDrain
+	HAPDefaultOnline  = HAPEnumUp | HAPEnumReady
+	HAPDefaultOffline = HAPEnumDrain
 
 	// Strings for sending composite feedback commands to HAProxy.
 	HAPCommandNone    = ""
@@ -454,7 +456,7 @@ func (fbr *FeedbackResponder) setHAPCommandMask(commands string,
 		replace = true
 		changeMask = HAPEnumNone
 	case HAPConfigDefault:
-		changeMask = HAPEnumDefaultOnline | HAPEnumDefaultOffline
+		changeMask = HAPDefaultOnline | HAPDefaultOffline
 	default:
 		// Look up each command and translate into a mask (if valid).
 		split := strings.Split(trimmed, " ")
@@ -474,18 +476,18 @@ func (fbr *FeedbackResponder) setHAPCommandMask(commands string,
 	// If setting these commands, OR the change mask into into the current
 	// command mask, otherwise AND NOT to unset them.
 	if replace {
-		fbr.commandMask = changeMask
+		fbr.configCommandMask = changeMask
 	} else if !unset {
-		fbr.commandMask |= changeMask
+		fbr.configCommandMask |= changeMask
 	} else {
-		fbr.commandMask &= ^changeMask
+		fbr.configCommandMask &= ^changeMask
 	}
 	// Convert the resulting command mask back to a string so that the
 	// JSON configuration reflects this new state.
 	if commands == HAPConfigNone || commands == HAPConfigDefault {
 		fbr.HAProxyCommands = commands
 	} else {
-		fbr.HAProxyCommands = fbr.CommandMaskToString(fbr.commandMask,
+		fbr.HAProxyCommands = fbr.CommandMaskToString(fbr.configCommandMask,
 			HAPMaskCommand, HAPMaskAll)
 	}
 	fbr.resetStateExpiry()
@@ -649,11 +651,13 @@ func (fbr *FeedbackResponder) getLogHead() string {
 }
 
 // Sets the current HAProxy command state, resetting the state expiry.
-func (fbr *FeedbackResponder) SetHAPCommandState(isOnline bool, force bool) {
+func (fbr *FeedbackResponder) SetHAPCommandState(isOnline bool, force bool,
+	overrideMask int) {
 	fbr.mutex.Lock()
 	defer fbr.mutex.Unlock()
-	fbr.lastCommandState = isOnline
+	fbr.onlineState = isOnline
 	fbr.forceCommandState = force
+	fbr.overrideMask = overrideMask & HAPMaskCommand
 	fbr.resetStateExpiry()
 }
 
@@ -742,28 +746,43 @@ func (fbr *FeedbackResponder) AvailabilityScore() (score int) {
 // It also changes the current online state as of the last query so that
 // a command is sent for a specified period of time from the first request.
 func (fbr *FeedbackResponder) HandleFeedback() (feedback string) {
-	callTime := time.Now()
+	timestamp := time.Now()
 	fbr.mutex.Lock()
 	defer fbr.mutex.Unlock()
 	score := fbr.AvailabilityScore()
 	feedback = strconv.Itoa(score) + "%"
 	thresholdState := score >= fbr.ThresholdScore
-	// Change state if either the current state has expired, or if
-	// this was not a "forced" state (i.e. set manually via the API/CLI)
-	// and therefore can be overriden by the value coming back within
-	// the acceptable threshold range.
-	if (thresholdState != fbr.lastCommandState) &&
-		!(fbr.forceCommandState && callTime.Before(fbr.stateExpiry)) {
+
+	// First, work out if we should change state based on the threshold.
+	// We do so if the threshold is enabled, the current threshold state
+	// has changed, and we aren't in a forced command that hasn't yet
+	// expired.
+	if (fbr.ThresholdEnabled && (thresholdState != fbr.onlineState)) &&
+		(!fbr.forceCommandState || (timestamp.After(fbr.stateExpiry) &&
+			(fbr.onlineState || fbr.EnableOfflineInterval))) {
+		// SetHACommandState() is used by external code, so it
+		// locks and unlocks the responder mutex itself. This means
+		// we need to release the mutex first before calling it
+		// and relock for the final defer.
 		fbr.mutex.Unlock()
-		fbr.SetHAPCommandState(thresholdState, false)
+		fbr.SetHAPCommandState(thresholdState, false, HAPEnumNone)
 		fbr.mutex.Lock()
 	}
-	// Append the command if 1) the command has not yet timed out or
-	// the timeout interval is disabled; and 2) either threshold is
-	// enabled, or this is a forced command.
-	if (callTime.Before(fbr.stateExpiry) || (fbr.CommandInterval < 1)) &&
-		(fbr.ThresholdEnabled || fbr.forceCommandState) {
-		feedback = fbr.GenerateCommandString(fbr.lastCommandState) +
+
+	// Next, work out whether we send a command for the current state
+	// by checking whether it's expired yet, overriden if it's an offline
+	// state and the interval is disabled for online states. Note that
+	// we have to repeat the logic tests here because the state may
+	// have changed above.
+	if !timestamp.After(fbr.stateExpiry) ||
+		(!fbr.EnableOfflineInterval && !fbr.onlineState) {
+		mask := 0
+		if fbr.overrideMask != HAPEnumNone {
+			mask = fbr.overrideMask
+		} else {
+			mask = fbr.configCommandMask
+		}
+		feedback = fbr.GenerateCommandString(fbr.onlineState, mask) +
 			" " + feedback
 	}
 	// The HAProxy specs call for a final newline to be sent.
@@ -794,14 +813,13 @@ func (fbr *FeedbackResponder) GetResponse(request string) (response string,
 
 // Generates an HAProxy command string based on the current
 // command mask and a specified online state.
-func (fbr *FeedbackResponder) GenerateCommandString(online bool) (
+func (fbr *FeedbackResponder) GenerateCommandString(online bool, currentMask int) (
 	commands string) {
 	state := HAPOfflineFlag
 	if online {
 		state = HAPOnlineFlag
 	}
-	commands = fbr.CommandMaskToString(fbr.commandMask, HAPMaskCommand,
-		state)
+	commands = fbr.CommandMaskToString(currentMask, HAPMaskCommand, state)
 	return
 }
 

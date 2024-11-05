@@ -209,12 +209,28 @@ func (agent *FeedbackAgent) apiActionTree(request *APIRequest, response *APIResp
 		default:
 			unknownType = true
 		}
-	case "force":
+	case "send":
 		switch request.Type {
 		case "online":
-			err = agent.APIHandleSetOnlineState(request, true)
+			err = agent.APIHandleSetOnlineState(request.TargetName,
+				true, HAPEnumNone)
 		case "offline":
-			err = agent.APIHandleSetOnlineState(request, false)
+			err = agent.APIHandleSetOnlineState(request.TargetName,
+				false, HAPEnumNone)
+		default:
+			unknownType = true
+		}
+	case "force":
+		switch request.Type {
+		case "halt", "maint":
+			err = agent.APIHandleSetOnlineState(request.TargetName,
+				false, HAPEnumMaint)
+		case "drain":
+			err = agent.APIHandleSetOnlineState(request.TargetName,
+				false, HAPEnumDrain)
+		case "online":
+			err = agent.APIHandleSetOnlineState(request.TargetName,
+				true, HAPDefaultOnline)
 		case "save-config":
 			agent.unsavedChanges = true
 		default:
@@ -666,13 +682,13 @@ func (agent *FeedbackAgent) APIHandleGetFeedback(request *APIRequest) (
 	return
 }
 
-func (agent *FeedbackAgent) APIHandleSetOnlineState(request *APIRequest,
-	isOnline bool) (err error) {
-	res, err := agent.GetResponderByName(request.TargetName)
+func (agent *FeedbackAgent) APIHandleSetOnlineState(name string,
+	isOnline bool, commandMask int) (err error) {
+	res, err := agent.GetResponderByName(name)
 	if err != nil {
 		return
 	}
-	res.SetHAPCommandState(isOnline, true)
+	res.SetHAPCommandState(isOnline, true, commandMask)
 	return
 }
 

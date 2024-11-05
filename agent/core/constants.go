@@ -63,7 +63,9 @@ All other Actions are followed by an Action Type, as follows:
   set:
      commands, cmd-threshold, cmd-interval
   force:
-     online, offline, save-config
+     halt, drain, offline, save-config
+  send:
+     online, offline
 
 Note that the running Agent service will automatically save any configuration
 changes to its JSON configuration file if they are successful, and no service
