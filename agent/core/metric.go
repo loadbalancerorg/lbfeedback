@@ -229,10 +229,11 @@ const (
 	MetricTypeScript        = "script"
 	ScriptMetricDefaultMax  = 100
 	ScriptMetricMinInterval = 3000
+	ParamKeyScriptName      = "script-name"
 )
 
 func (m *ScriptMetric) Configure(params MetricParams) (err error) {
-	scriptName, err := GetParamValueString("script-name", params)
+	scriptName, err := GetParamValueString(ParamKeyScriptName, params)
 	if err != nil {
 		return
 	}
@@ -278,12 +279,13 @@ type DiskUsageMetric struct {
 
 const (
 	MetricTypeDiskUsage  = "disk-usage"
+	ParamKeyDiskPath     = "disk-path"
 	DiskUsageDefaultMax  = 100
 	DiskUsageMinInterval = 3000
 )
 
 func (m *DiskUsageMetric) Configure(params MetricParams) (err error) {
-	diskPath, err := GetParamValueString("path", params)
+	diskPath, err := GetParamValueString(ParamKeyDiskPath, params)
 	if err != nil {
 		return
 	}

@@ -29,27 +29,59 @@ The Loadbalancer.org Feedback Agent v5 is cross-platform and concurrent, written
 - The binary is designed to be dependency-free irrespective of the platform build target; all required libraries should be compiled in.
 ### Linux x86_64
 - Download the most recent version of the Feedback Agent from the `binaries/` directory of this repository for the target platform. **You do not need to build the binary for yourself as it is designed to be portable and dependency free.**
-- Untar the binary to a suitable location in your PATH (e.g. `/usr/bin`).
-- The binary has two "personalities"; if run with the command `lbfeedback run-agent` (as `sudo`) this will start the agent itself. This can be used either for testing the agent interactively or as the appropriate shell command to place in a startup script (e.g. an init or Upstart service, or a cron job). The user will not have to do this manually as Andy's install script (via a link from the Portal) will create the appropriate startup service.
-- You may wish to either use a separate terminal window so that you can view the real-time log events whilst testing with the CLI API client or send it to the background.
-- When run with `lbfeedback action` this launches the binary into the CLI client personality which allows it to send API commands to the running Agent. The Agent instance itself running in the background is responsible for updating the JSON configuration file and the CLI mode of the binary merely acts as an API client. The API key is fetched from the configuration file located at /opt/lbfeedback/agent-config.json to give the CLI personality of the binary the necessary credentials to access the agent API. The CLI Client personality does not require `sudo` privileges.
-- For initial MVP testing, simply check that the agent runs and creates a default configuration in /opt/lbfeedback. This should consist of:
-  - A TCP mode Responder with HAProxy commands disabled listening on all IPs on port 3333. Test this using Telnet to port 3333.
-  - An HTTP mode API Responder listening on 127.0.0.1 on port 3334. Test this using a Web browser.
-  - Run the agent interactively in a console window as above (as sudo), and in another console window (most convenient), try the following CLI client commands (no sudo required)
-  - `lbfeedback action get-feedback -name default`
-  - `lbfeedback action get-config`
-  - `lbfeedback action status`
-  - `lbfeedback action haproxy-enable -name default` (now observe the HAProxy command in telnet and `get-feedback`)
-  - `lbfeedback action haproxy-down -name default` (observe it now sends `down` in telnet)
-  - `lbfeedback action haproxy-clear -name default` (observe it now sends `up` again)
-  - `lbfeedback action haproxy-set-threshold -name default -threshold-value 80` (use `stress` or similar to increase CPU utilisation and observe that `down` is sent >20% CPU)
-  - There are more commands available and working in the API/agent (but for which the docs don't yet exist), including:
-    - Adding, editing, deleting, stopping and starting Responders and Monitors
-    - Script type monitors
-    - The ability to change the IP address and port of the API
-    - Stopping and starting the agent from the CLI
+- Either untar the binary to a suitable location in your PATH (e.g. `/usr/bin`) or run directly from a local directory (you will need to prefix the commands below with `./` if so).
+- The binary has two "personalities"; if run with the command `lbfeedback run-agent` (as `sudo`) this will start the agent itself. This can be used either for testing the agent interactively or as the appropriate shell command to place in a startup script (e.g. an init or Upstart service, or a cron job). The user will not have to do this manually as Andy's install script (via a link from the Portal) will create the appropriate startup service. Note that all actions are sent to the Agent via its API to be performed and all configuration changes are automatically saved by the background Agent instance to its JSON configuration file.
+- When run with any other command this launches the binary into the CLI client personality which allows it to send API commands to the running Agent. The Agent instance itself running in the background is responsible for updating the JSON configuration file and the CLI mode of the binary merely acts as an API client. The API key is fetched from the configuration file located at `/opt/lbfeedback/agent-config.json` to give the CLI personality of the binary the necessary credentials to access the agent API. The CLI Client personality does not require `sudo` privileges, whereas the Agent service mode does.
+- For initial MVP testing, perform the initial steps below to validate basic functionality:
+  - First, please ensure any old JSON configuration files from previous Feedback Agent testing are removed from the configuration directory:<br/>
+  `rm -Rvf /opt/lbfeedback`
+  - Open a new console window and launch the Agent background service in the foreground to view the console events in real time, which are also sent to the log file:<br/>
+  `sudo lbfeedback run-agent`
+  - Verify that you are testing the correct version of the Feedback Agent binary, which at the time of writing is `5.3.1-beta`. This is printed in the masthead shown on application launch as well as the log message printed on startup.
+  - Verify from the console that the agent initialises with default parameters consisting of the following and writes a new configuration file:
+    - A single CPU mode System Monitor named "cpu".
+    - An single TCP mode Responder listening on all IPs on port 3333 named "default", with a single monitor source of the "cpu" default monitor.
+    - An HTTP mode API Responder listening on 127.0.0.1 on port 3334.
+  - Open a separate terminal window for testing the agent behaviour.
+  - Use Telnet to verify that the TCP mode responder is providing feedback followed by a line break and TCP FIN (not `nc` as it seems to stay attached to stdin and doesn't indicate the TCP FIN) as follows:<br/>
+  `telnet 127.0.0.1 3333`
+  - Run the following commands to verify basic CLI Client functionality:
+    - Show the basic help documentation provided by the Agent (this gives an idea of the commands):<br/>
+    `lbfeedback help`<br/>
+    - Get the running configuration state of the agent:<br/>
+    `lbfeedback get config`
+    - Create a new RAM type System Monitor with default settings named "ram":<br/>
+    `lbfeedback add monitor -name ram -metric-type ram`
+    - Add this new monitor as a source to the existing Responder named "default":<br/>
+    `lbfeedback add source -name default -monitor ram`
+    - Change the significance of the RAM monitor within the Responder from 1.0 to 0.5 resulting in its relative significances being recalculated:<br/>
+    `lbfeedback edit source -name default -monitor ram -significance 0.5`<br/>
+    The total of all significance values should now be reported in the log as 1.50 with a resulting relative significance of 0.67 for the CPU monitor and 0.33 for the RAM monitor, as follows:<br/>
+~~~
+INFO[2024-11-05 12:29:47] Responder 'default' : calculating relative significances, total 1.50. 
+INFO[2024-11-05 12:29:47] Responder 'default: name 'cpu', type 'cpu': 1.00 -> relative 0.67. 
+INFO[2024-11-05 12:29:47] Responder 'default: name 'ram', type 'ram': 0.50 -> relative 0.33.
+~~~
+  - Recheck the feedback to show that this change in significance has taken effect:<br/>
+  `telnet 127.0.0.1 3333`
+  - Instruct the Agent to send commands to HAProxy to force offline a RIP; by default this is for 10 seconds and the command is simply `drain` (as per Malcolm, but both parameters are configurable), and recheck the feedback within the interval:<br/>
+  `lbfeedback force offline -name default`<br/>
+  `telnet 127.0.0.1 3333`
+  - As above, send commands to HAProxy to force a RIP online:<br/>
+  `lbfeedback force offline -name default`<br/>
+  `telnet 127.0.0.1 3333`
+  - Set a minimum availability threshold below what is currently reported by the Responder above and observe the automatic commands that are now sent:
+  - `lbfeedback set cmd-threshold -name default -threshold-min 60`</br>
+  Use `stress` or a similar tool to increase CPU utilisation and observe that `drain` is sent when the threshold has been reached, and `up ready` when the load is removed.
+
 ## Release Notes, Known Issues and To Do
+
+## v5.3.0/v5.3.1-beta (2024-10-21)
+- Change behaviours to exactly match the Windows Feedback Agent, including a default threshold of 0% availability with a command interval of 10 seconds and commands enabled by default, as requested by Malcolm. Personally, I think that these defaults need to be reviewed (especially the command interval and having commands enabled by default), but in any case, the CLI can be used to change this based on the customer's requirements.
+- Simplify CLI command tree to avoid the unnecessary "action" type.
+- Implement the "netconn" and "disk-usage" System Monitor options.
+- Provide self-documentation via the "help" command.
+
 
 ## v5.2.1-beta (2024-10-21)
 - A massive number of changes for the Linux MVP release.

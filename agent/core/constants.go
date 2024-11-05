@@ -23,7 +23,7 @@
 package agent
 
 const (
-	VersionString       string = "5.3.0-beta"
+	VersionString       string = "5.3.1-beta"
 	ProtocolHTTP        string = "http"
 	ProtocolTCP         string = "tcp"
 	ProtocolAPI         string = "http-api"
@@ -87,7 +87,7 @@ PARAMETERS:
   -threshold-min      Minimum availability for an online state (percent).
   -command-interval   Time interval to send HAProxy commands for (ms, 
                       default 10000).
-  -monitor            Name identifier of a Monitor.
+  -monitor            Name identifier of a target Monitor.
   -significance       Significance value (floating-point; e.g. 1.0). This
                       is converted into a Relative Significance by summing
                       the significance of all sources within a Responder
@@ -96,8 +96,11 @@ PARAMETERS:
                       scale its availability.
   -metric-type        Type of metric. Options: 'cpu', 'ram', 'disk-usage',
                       'netconn', 'script'.
-  -metric-config      Key/value pairs for configuring a System Metric:
-                      Syntax: key=value,key=value
+  -sampling-ms        For 'cpu' metrics, the sample window duration (ms).
+  -script-name        For 'script' metrics, the name of the script to run from
+                      the Feedback Agent configuration directory.
+  -disk-path          For 'disk-usage' metrics, the local filesystem path to
+                      monitor for available disk space.
 
 EXAMPLES:
    lbfeedback get config

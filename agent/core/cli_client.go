@@ -132,7 +132,12 @@ func CLIHandleAgentAction(actionName string, actionType string, argv []string) (
 	argSourceSignificance := apiArgs.Float64("significance", 1.0, "")
 	argSourceMaxValue := apiArgs.Int64("max-value", -1, "")
 	argMetricType := apiArgs.String("metric-type", "", "")
-	argMetricConfig := apiArgs.String("metric-config", "", "")
+
+	// Fields for [MetricParams] configuration. Note that all
+	// of these are String values within metric.go.
+	argSampleTime := apiArgs.String("sampling-ms", "", "")
+	argScriptName := apiArgs.String("script-name", "", "")
+	argDiskPath := apiArgs.String("disk-path", "", "")
 
 	// $$ TO DO: Define help for actions (catch error)
 	_ = apiArgs.Parse(argv)
@@ -173,28 +178,11 @@ func CLIHandleAgentAction(actionName string, actionType string, argv []string) (
 		SourceMaxValue:     argSourceMaxValue,
 		MetricType:         argMetricType,
 		MetricInterval:     argCommandInterval,
-		MetricParams:       nil,
-	}
-
-	// Parse key/value pairs for the metric configuration,
-	// if specified.
-	if argMetricConfig != nil {
-		params := MetricParams{}
-		items := strings.Split(*argMetricConfig, ",")
-		for _, param := range items {
-			param := strings.TrimSpace(param)
-			if len(param) < 1 {
-				continue
-			}
-			keyVal := strings.Split(param, "=")
-			if len(keyVal) != 2 {
-				err = errors.New("invalid key/value pair '" +
-					param + "'")
-				return
-			}
-			params[keyVal[0]] = keyVal[1]
-		}
-		request.MetricParams = &params
+		MetricParams: &MetricParams{
+			ParamKeySampleTime: *argSampleTime,
+			ParamKeyScriptName: *argScriptName,
+			ParamKeyDiskPath:   *argDiskPath,
+		},
 	}
 
 	// Workaround for * being expanded into a glob in bash
@@ -229,7 +217,7 @@ func CLIHandleAgentAction(actionName string, actionType string, argv []string) (
 		bytes.NewBuffer(reqBodyJSON))
 	if err != nil {
 		err = errors.New("Error: " + err.Error() + "\nThe CLI Client " +
-			"failed to establish an HTTP connection to the agent." +
+			"failed to establish an HTTP connection to the Agent." +
 			"\nPlease check that the Agent is running and able to " +
 			"accept API requests.")
 		return
