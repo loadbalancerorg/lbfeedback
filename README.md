@@ -64,11 +64,11 @@ INFO[2024-11-05 12:29:47] Responder 'default: name 'ram', type 'ram': 0.50 -> re
 ~~~
   - Recheck the feedback to show that this change in significance has taken effect:<br/>
   `telnet 127.0.0.1 3333`
-  - Instruct the Agent to send commands to HAProxy to force offline a RIP; by default this is for 10 seconds and the command is simply `drain` (as per Malcolm, but both parameters are configurable), and recheck the feedback within the interval:<br/>
-  `lbfeedback force offline -name default`<br/>
+  - Instruct the Agent to send commands to HAProxy to force offline a RIP; by default this is for 10 seconds and the command is simply `maint`, and verify that the "maint" command continues to be sent past the usual command timeout:<br/>
+  `lbfeedback force halt -name default`<br/>
   `telnet 127.0.0.1 3333`
-  - As above, send commands to HAProxy to force a RIP online:<br/>
-  `lbfeedback force offline -name default`<br/>
+  - As above, send commands to HAProxy to force a RIP online but observe this time that it is only sent for 10 seconds:<br/>
+  `lbfeedback force online -name default`<br/>
   `telnet 127.0.0.1 3333`
   - Set a minimum availability threshold below what is currently reported by the Responder above and observe the automatic commands that are now sent:
   - `lbfeedback set cmd-threshold -name default -threshold-min 60`</br>
@@ -76,7 +76,10 @@ INFO[2024-11-05 12:29:47] Responder 'default: name 'ram', type 'ram': 0.50 -> re
 
 ## Release Notes, Known Issues and To Do
 
-## v5.3.0/v5.3.1-beta (2024-10-21)
+## v5.3.2-beta (2024-11-05)
+- Change force/set behaviours and command timeout behaviours as per Malcolm.
+
+## v5.3.0/v5.3.1-beta (2024-11-05)
 - Change behaviours to exactly match the Windows Feedback Agent, including a default threshold of 0% availability with a command interval of 10 seconds and commands enabled by default, as requested by Malcolm. Personally, I think that these defaults need to be reviewed (especially the command interval and having commands enabled by default), but in any case, the CLI can be used to change this based on the customer's requirements.
 - Simplify CLI command tree to avoid the unnecessary "action" type.
 - Implement the "netconn" and "disk-usage" System Monitor options.
