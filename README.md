@@ -62,17 +62,17 @@ INFO[2024-11-05 12:29:47] Responder 'default' : calculating relative significanc
 INFO[2024-11-05 12:29:47] Responder 'default: name 'cpu', type 'cpu': 1.00 -> relative 0.67. 
 INFO[2024-11-05 12:29:47] Responder 'default: name 'ram', type 'ram': 0.50 -> relative 0.33.
 ~~~
-    - Recheck the feedback to show that this change in significance has taken effect:<br/>
-    `telnet 127.0.0.1 3333`
-    - Instruct the Agent to send commands to HAProxy to force offline a RIP; by default this is for 10 seconds and the command is simply `drain` (as per Malcolm, but both parameters are configurable), and recheck the feedback within the interval:<br/>
-    `lbfeedback force offline -name default`<br/>
-    `telnet 127.0.0.1 3333`
-    - As above, send commands to HAProxy to force a RIP online:<br/>
-    `lbfeedback force offline -name default`<br/>
-    `telnet 127.0.0.1 3333`
-    - Set a minimum availability threshold below what is currently reported by the Responder above and observe the automatic commands that are now sent:
-    - `lbfeedback set cmd-threshold -name default -threshold-min 60`</br>
-    Use `stress` or a similar tool to increase CPU utilisation and observe that `drain` is sent when the threshold has been reached, and `up ready` when the load is removed.
+  - Recheck the feedback to show that this change in significance has taken effect:<br/>
+  `telnet 127.0.0.1 3333`
+  - Instruct the Agent to send commands to HAProxy to force offline a RIP; by default this is for 10 seconds and the command is simply `drain` (as per Malcolm, but both parameters are configurable), and recheck the feedback within the interval:<br/>
+  `lbfeedback force offline -name default`<br/>
+  `telnet 127.0.0.1 3333`
+  - As above, send commands to HAProxy to force a RIP online:<br/>
+  `lbfeedback force offline -name default`<br/>
+  `telnet 127.0.0.1 3333`
+  - Set a minimum availability threshold below what is currently reported by the Responder above and observe the automatic commands that are now sent:
+  - `lbfeedback set cmd-threshold -name default -threshold-min 60`</br>
+  Use `stress` or a similar tool to increase CPU utilisation and observe that `drain` is sent when the threshold has been reached, and `up ready` when the load is removed.
 
 ## Release Notes, Known Issues and To Do
 
