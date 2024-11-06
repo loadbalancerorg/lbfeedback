@@ -40,7 +40,7 @@ The Loadbalancer.org Feedback Agent v5 is cross-platform and concurrent, written
 `rm -Rvf /opt/lbfeedback`
 - Open a new console window and launch the Agent background service in the foreground to view the console events in real time, which are also sent to the log file:<br/>
 `sudo lbfeedback run-agent`
-- Verify that you are testing the correct version of the Feedback Agent binary, which at the time of writing is `5.3.2-beta`. This is printed in the masthead shown on application launch as well as the log message printed on startup.
+- Verify that you are testing the correct version of the Feedback Agent binary, which at the time of writing is `5.3.3-beta`. This is printed in the masthead shown on application launch as well as the log message printed on startup.
 - Verify from the console that the agent initialises with default parameters consisting of the following and writes a new configuration file:
   - A single CPU mode System Monitor named "cpu".
   - A single TCP mode Responder listening on all IPs on port 3333 named "default", with a single monitor source of the "cpu" default monitor.
@@ -67,17 +67,29 @@ INFO[2024-11-05 12:29:47] Responder 'default: name 'ram', type 'ram': 0.50 -> re
 ~~~
   - Recheck the feedback to show that this change in significance has taken effect:<br/>
   `telnet 127.0.0.1 3333`
-  - Instruct the Agent to send commands to HAProxy to force offline a RIP; by default this is sent continuously unless overridden and the command is simply `maint`. Verify that the "maint" command continues to be sent past the usual command timeout:<br/>
-  `lbfeedback force halt -name default`<br/>
-  `telnet 127.0.0.1 3333`
+  - Instruct the Agent to send commands from all Responders to HAProxy to bring its RIPs into maintenance mode. By default this is sent continuously unless overridden and the command is simply `maint`. Verify that the "maint" command continues to be sent continuously past the default command timeout:<br/>
+  `lbfeedback force halt`<br/>
+  `telnet 127.0.0.1 3333`<br/>
+  - Repeat also for the `drain` behaviour:
+  `lbfeedback force drain`<br/>
+  `telnet 127.0.0.1 3333`<br/>
   - As above, send commands to HAProxy to force a RIP online but observe this time that it is only sent for 10 seconds:<br/>
-  `lbfeedback force online -name default`<br/>
+  `lbfeedback force online`<br/>
   `telnet 127.0.0.1 3333`
-  - Set a minimum availability threshold below what is currently reported by the Responder above and observe the automatic commands that are now sent:
+  - Where multiple Feedback Responders are configured in an Agent, to specify a single Responder only, use the `-name <responder>` parameter, where `<responder>` is the name of Feedback Responder for which the state should be forced. Test this functionality as follows:
+  `lbfeedback force halt -name default`<br/>
+  `lbfeedback force drain -name default`<br/>
+  `lbfeedback force online -name default`<br/>
+  - Next, check the availability threshold functionality. Set a minimum availability threshold below what is currently reported by the Responder above and observe the automatic commands that are now sent:
   - `lbfeedback set cmd-threshold -name default -threshold-min 60`</br>
-  Use `stress` or a similar tool to increase CPU utilisation and observe that `drain` is sent when the threshold has been reached, and `up ready` when the load is removed.
+  Use `stress` or a similar tool to increase CPU utilisation and observe that by default, `drain` is sent when the threshold has been reached, and `up ready` when the load is removed.
 
 ## Release Notes, Known Issues and To Do
+
+## v5.3.3-beta (2024-11-06)
+- Make the `-name` parameter optional for the `force` commands. If this parameter is omitted, all Responders for which HAProxy commands are not disabled will send the specified state.
+- Clean up the parameter validation behaviour if invalid parameters are specified in a CLI command.
+- Update help text and MVP testing instructions in README.md.
 
 ## v5.3.2-beta (2024-11-05)
 - Change force/set behaviours and command timeout behaviours as per Malcolm.

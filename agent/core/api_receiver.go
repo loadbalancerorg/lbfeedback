@@ -684,11 +684,21 @@ func (agent *FeedbackAgent) APIHandleGetFeedback(request *APIRequest) (
 
 func (agent *FeedbackAgent) APIHandleSetOnlineState(name string,
 	isOnline bool, commandMask int) (err error) {
-	res, err := agent.GetResponderByName(name)
-	if err != nil {
-		return
+	name = strings.TrimSpace(name)
+	targets := make(map[string]*FeedbackResponder)
+	if name == "" {
+		targets = agent.Responders
+	} else {
+		var res *FeedbackResponder
+		res, err = agent.GetResponderByName(name)
+		if err != nil {
+			return
+		}
+		targets[name] = res
 	}
-	res.SetHAPCommandState(isOnline, true, commandMask)
+	for _, res := range targets {
+		res.SetHAPCommandState(isOnline, true, commandMask)
+	}
 	return
 }
 

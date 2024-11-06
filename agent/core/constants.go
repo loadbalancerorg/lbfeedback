@@ -23,7 +23,7 @@
 package agent
 
 const (
-	VersionString       string = "5.3.2-beta"
+	VersionString       string = "5.3.3-beta"
 	ProtocolHTTP        string = "http"
 	ProtocolTCP         string = "tcp"
 	ProtocolAPI         string = "http-api"
@@ -63,7 +63,7 @@ All other Actions are followed by an Action Type, as follows:
   set:
      commands, cmd-threshold, cmd-interval
   force:
-     halt, drain, offline, save-config
+     halt, drain, online, save-config
   send:
      online, offline
 
@@ -72,7 +72,11 @@ changes to its JSON configuration file if they are successful, and no service
 restart is required as they are applied immediately.
   
 PARAMETERS:
-  -name               Name identifier of a service.
+  -name               Name identifier of a service. 
+                      For the 'force' and 'send' HAProxy command actions, 
+                      omitting this parameter will apply the action to all 
+                      Feedback Responders for which HAProxy commands are not 
+                      disabled; see also '-command-list' below.
   -command-list       List of HAProxy commands to enable, space-separated.
                       Example: -command-list up down
                       These are automatically detected as pertaining to online

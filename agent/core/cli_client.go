@@ -81,7 +81,7 @@ func RunClientCLI() (status int) {
 	responseObject, _, err := CLIHandleAgentAction(actionName,
 		actionType, actionArgs)
 	if err != nil {
-		println("Error: " + err.Error() + "")
+		println("Error: " + err.Error() + ".")
 		status = ExitStatusError
 	}
 	if responseObject != nil {
@@ -99,11 +99,11 @@ func RunClientCLI() (status int) {
 			}
 		}
 	}
-	if responseObject != nil && responseObject.Success {
-		println("Operation completed successfully.")
-	} else {
-		println("An error occurred during the operation.")
+	resultMsg := "was successful"
+	if responseObject == nil || !responseObject.Success {
+		resultMsg = "could not be completed"
 	}
+	println("The operation " + resultMsg + ".")
 	return
 }
 
@@ -113,6 +113,8 @@ func CLIHandleAgentAction(actionName string, actionType string, argv []string) (
 	// process from the CLI. Note that it is the API's responsibility
 	// to validate that the correct parameters have been supplied.
 	apiArgs := flag.NewFlagSet("", flag.ContinueOnError)
+	apiArgs.Usage = func() {}
+	//apiArgs.
 	argType := apiArgs.String("type", "", "")
 	argTargetName := apiArgs.String("name", "", "")
 	argCommandList := apiArgs.String("command-list", "", "")
@@ -139,8 +141,12 @@ func CLIHandleAgentAction(actionName string, actionType string, argv []string) (
 	argScriptName := apiArgs.String("script-name", "", "")
 	argDiskPath := apiArgs.String("disk-path", "", "")
 
-	// $$ TO DO: Define help for actions (catch error)
-	_ = apiArgs.Parse(argv)
+	// $$ TO DO: Define help for actions.
+	err = apiArgs.Parse(argv)
+	if err != nil && err != flag.ErrHelp {
+		err = errors.New("one or more parameters were invalid; use the 'help' command for syntax")
+		return
+	}
 
 	// If no action type was specified, a -type flag can be
 	// set instead; handle this situation.
@@ -216,10 +222,10 @@ func CLIHandleAgentAction(actionName string, actionType string, argv []string) (
 	httpResponse, err := http.Post(apiURL, "application/json",
 		bytes.NewBuffer(reqBodyJSON))
 	if err != nil {
-		err = errors.New("Error: " + err.Error() + "\nThe CLI Client " +
+		err = errors.New(err.Error() + "\nThe CLI Client " +
 			"failed to establish an HTTP connection to the Agent." +
 			"\nPlease check that the Agent is running and able to " +
-			"accept API requests.")
+			"accept API requests")
 		return
 	}
 	// Read the contents of the response.
