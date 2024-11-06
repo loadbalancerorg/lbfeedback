@@ -48,45 +48,44 @@ The Loadbalancer.org Feedback Agent v5 is cross-platform and concurrent, written
 - Open a separate terminal window for testing the agent behaviour.
 - Use Telnet to verify that the TCP mode responder is providing feedback followed by a line break and TCP FIN (not `nc` as it seems to stay attached to stdin and doesn't indicate the TCP FIN) as follows:<br/>
 `telnet 127.0.0.1 3333`
-- Run the following commands to verify basic CLI Client functionality:
-  - Show the basic help documentation provided by the Agent (this gives an idea of the commands):<br/>
-  `lbfeedback help`<br/>
-  - Get the running configuration state of the agent:<br/>
-  `lbfeedback get config`
-  - Create a new RAM type System Monitor with default settings named "ram":<br/>
-  `lbfeedback add monitor -name ram -metric-type ram`
-  - Add this new monitor as a source to the existing Responder named "default":<br/>
-  `lbfeedback add source -name default -monitor ram`
-  - Change the significance of the RAM monitor within the Responder from 1.0 to 0.5 resulting in its relative significances being recalculated:<br/>
-  `lbfeedback edit source -name default -monitor ram -significance 0.5`<br/>
-  The total of all significance values should now be reported in the log as 1.50 with a resulting relative significance of 0.67 for the CPU monitor and 0.33 for the RAM monitor, as follows:<br/>
+- Show the basic help documentation provided by the Agent (this gives an idea of the commands):<br/>
+`lbfeedback help`<br/>
+- Get the running configuration state of the agent:<br/>
+`lbfeedback get config`
+- Create a new RAM type System Monitor with default settings named "ram":<br/>
+`lbfeedback add monitor -name ram -metric-type ram`
+- Add this new monitor as a source to the existing Responder named "default":<br/>
+`lbfeedback add source -name default -monitor ram`
+- Change the significance of the RAM monitor within the Responder from 1.0 to 0.5 resulting in its relative significances being recalculated:<br/>
+`lbfeedback edit source -name default -monitor ram -significance 0.5`<br/>
+The total of all significance values should now be reported in the log as 1.50 with a resulting relative significance of 0.67 for the CPU monitor and 0.33 for the RAM monitor, as follows:<br/>
 ~~~
 INFO[2024-11-05 12:29:47] Responder 'default' : calculating relative significances, total 1.50. 
 INFO[2024-11-05 12:29:47] Responder 'default: name 'cpu', type 'cpu': 1.00 -> relative 0.67. 
 INFO[2024-11-05 12:29:47] Responder 'default: name 'ram', type 'ram': 0.50 -> relative 0.33.
 ~~~
-  - Recheck the feedback to show that this change in significance has taken effect:<br/>
-  `telnet 127.0.0.1 3333`
-  - Instruct the Agent to send commands from all Responders to HAProxy to bring its RIPs into maintenance mode. By default this is sent continuously unless overridden and the command is simply `maint`. Verify that the "maint" command continues to be sent continuously past the default command timeout:<br/>
-  `lbfeedback force halt`<br/>
-  `telnet 127.0.0.1 3333`<br/>
-  - Repeat also for the `drain` behaviour:
-  `lbfeedback force drain`<br/>
-  `telnet 127.0.0.1 3333`<br/>
-  - As above, send commands to HAProxy to force a RIP online but observe this time that it is only sent for 10 seconds:<br/>
-  `lbfeedback force online`<br/>
-  `telnet 127.0.0.1 3333`
-  - Where multiple Feedback Responders are configured in an Agent, to specify a single Responder only, use the `-name <responder>` parameter, where `<responder>` is the name of Feedback Responder for which the state should be forced. Test this functionality as follows:
-  `lbfeedback force halt -name default`<br/>
-  `lbfeedback force drain -name default`<br/>
-  `lbfeedback force online -name default`<br/>
-  - Next, check the availability threshold functionality. Set a minimum availability threshold below what is currently reported by the Responder above and observe the automatic commands that are now sent. (Note that by default, setting a valid threshold will automatically enable thresholding for a Responder, but if desired this can be overridden by adding the `-threshold-enabled false` option.) Test the following command:
-  `lbfeedback set threshold -name default -threshold-min 60`</br>
-  Use `stress` or a similar tool to increase CPU utilisation and observe that by default, `drain` is sent when the threshold has been reached, and `up ready` when the load is removed.
+- Recheck the feedback to show that this change in significance has taken effect:<br/>
+`telnet 127.0.0.1 3333`
+- Instruct the Agent to send commands from all Responders to HAProxy to bring its RIPs into maintenance mode. By default this is sent continuously unless overridden and the command is simply `maint`. Verify that the "maint" command continues to be sent continuously past the default command timeout:<br/>
+`lbfeedback force halt`<br/>
+`telnet 127.0.0.1 3333`<br/>
+- Repeat also for the `drain` behaviour:
+`lbfeedback force drain`<br/>
+`telnet 127.0.0.1 3333`<br/>
+- As above, send commands to HAProxy to force a RIP online but observe this time that it is only sent for 10 seconds:<br/>
+`lbfeedback force online`<br/>
+`telnet 127.0.0.1 3333`
+- Where multiple Feedback Responders are configured in an Agent, to specify a single Responder only, use the `-name <responder>` parameter, where `<responder>` is the name of Feedback Responder for which the state should be forced. Test this functionality as follows:<br/>
+`lbfeedback force halt -name default`<br/>
+`lbfeedback force drain -name default`<br/>
+`lbfeedback force online -name default`<br/>
+- Next, check the availability threshold functionality. Set a minimum availability threshold below what is currently reported by the Responder above and observe the automatic commands that are now sent. (Note that by default, setting a valid threshold will automatically enable thresholding for a Responder, but if desired this can be overridden by adding the `-threshold-enabled false` option.) Test the following command:
+`lbfeedback set threshold -name default -threshold-min 60`</br>
+Use `stress` or a similar tool to increase CPU utilisation and observe that by default, `drain` is sent when the threshold has been reached, and `up ready` when the load is removed.
 
 ## Release Notes, Known Issues and To Do
 
-## v5.3.4-beta (2024-11-07)
+### v5.3.4-beta (2024-11-07)
 - Fix an issue where enabling and disabling Threshold Mode did not work properly via the CLI due to a parameter handling bug.
 - Implement a default behaviour of enabling Threshold Mode if a valid threshold is set with `-threshold-min`, unless it is accompanied by a `-threshold-enabled false` parameter that overrides it.
 - Improve `set` CLI/API commands to remove redundancy and eliminate the `cmd-` prefix, combining both command options and setting them based on whether they are specified; they can now be used as in the following example:
@@ -97,31 +96,31 @@ INFO[2024-11-05 12:29:47] Responder 'default: name 'ram', type 'ram': 0.50 -> re
 - Update the `build_linux.sh` script to automatically bundle the LICENSE and README.md files in the .tar.gz archive for distribution.
 - Prevent a possible runtime panic by implementing a missing null field check in the API handler for configuring HAProxy commands.
 
-## v5.3.3-beta (2024-11-06)
+### v5.3.3-beta (2024-11-06)
 - Make the `-name` parameter optional for the `force` commands. If this parameter is omitted, all Responders for which HAProxy commands are not disabled will send the specified state.
 - Clean up the parameter validation behaviour if invalid parameters are specified in a CLI command.
 - Update help text and MVP testing instructions in README.md.
 
-## v5.3.2-beta (2024-11-05)
+### v5.3.2-beta (2024-11-05)
 - Change force/set behaviours and command timeout behaviours as per Malcolm.
 
-## v5.3.0/v5.3.1-beta (2024-11-05)
+### v5.3.0/v5.3.1-beta (2024-11-05)
 - Change behaviours to exactly match the Windows Feedback Agent, including a default threshold of 0% availability with a command interval of 10 seconds and commands enabled by default, as requested by Malcolm. Personally, I think that these defaults need to be reviewed (especially the command interval and having commands enabled by default), but in any case, the CLI can be used to change this based on the customer's requirements.
 - Simplify CLI command tree to avoid the unnecessary "action" type.
 - Implement the "netconn" and "disk-usage" System Monitor options.
 - Provide self-documentation via the "help" command.
 
 
-## v5.2.1-beta (2024-10-21)
+### v5.2.1-beta (2024-10-21)
 - A massive number of changes for the Linux MVP release.
 - Known issues:
-- - Colours from the `logrus` library are making their way through into the logfile in `/var/log/lbfeedback` which is very annoying. Strangely, this is harder to fix than you might imagine as the option to disable colours also has the effect of disabling the formatting.
-- - The error output from the CLI client mode is not very user-friendly.
-- - There is no self-documentation yet in the binary; that is, a `help` command is currently missing.
-- - There are almost no default parameters where these don't need to be specified.
-- - The CLI personality lacks prevalidation of parameters before sending to the API.
-- - A more human-friendly output than the pretty-printed JSON would be nice for the CLI result.
-- - Nick has not yet documented the CLI/API - there is a tonne of available options and commands (including adding, removing, editing stuff) but this needs to be written up.
+  - Colours from the `logrus` library are making their way through into the logfile in `/var/log/lbfeedback` which is very annoying. Strangely, this is harder to fix than you might imagine as the option to disable colours also has the effect of disabling the formatting.
+  - The error output from the CLI client mode is not very user-friendly.
+  - There is no self-documentation yet in the binary; that is, a `help` command is currently missing.
+  - There are almost no default parameters where these don't need to be specified.
+  - The CLI personality lacks prevalidation of parameters before sending to the API.
+  - A more human-friendly output than the pretty-printed JSON would be nice for the CLI result.
+  - Nick has not yet documented the CLI/API - there is a tonne of available options and commands (including adding, removing, editing stuff) but this needs to be written up.
 
 ### v5.1.9-alpha (2024-03-06)
 - Significant code cleanup and refactoring for the `SystemMetric` and `SystemMonitor` types.
