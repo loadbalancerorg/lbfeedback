@@ -40,7 +40,7 @@ The Loadbalancer.org Feedback Agent v5 is cross-platform and concurrent, written
 `rm -Rvf /opt/lbfeedback`
 - Open a new console window and launch the Agent background service in the foreground to view the console events in real time, which are also sent to the log file:<br/>
 `sudo lbfeedback run-agent`
-- Verify that you are testing the correct version of the Feedback Agent binary, which at the time of writing is `5.3.3-beta`. This is printed in the masthead shown on application launch as well as the log message printed on startup.
+- Verify that you are testing the correct version of the Feedback Agent binary, which at the time of writing is `5.3.4-beta`. This is printed in the masthead shown on application launch as well as the log message printed on startup.
 - Verify from the console that the agent initialises with default parameters consisting of the following and writes a new configuration file:
   - A single CPU mode System Monitor named "cpu".
   - A single TCP mode Responder listening on all IPs on port 3333 named "default", with a single monitor source of the "cpu" default monitor.
@@ -80,11 +80,22 @@ INFO[2024-11-05 12:29:47] Responder 'default: name 'ram', type 'ram': 0.50 -> re
   `lbfeedback force halt -name default`<br/>
   `lbfeedback force drain -name default`<br/>
   `lbfeedback force online -name default`<br/>
-  - Next, check the availability threshold functionality. Set a minimum availability threshold below what is currently reported by the Responder above and observe the automatic commands that are now sent:
-  - `lbfeedback set cmd-threshold -name default -threshold-min 60`</br>
+  - Next, check the availability threshold functionality. Set a minimum availability threshold below what is currently reported by the Responder above and observe the automatic commands that are now sent. (Note that by default, setting a valid threshold will automatically enable thresholding for a Responder, but if desired this can be overridden by adding the `-threshold-enabled false` option.) Test the following command:
+  `lbfeedback set threshold -name default -threshold-min 60`</br>
   Use `stress` or a similar tool to increase CPU utilisation and observe that by default, `drain` is sent when the threshold has been reached, and `up ready` when the load is removed.
 
 ## Release Notes, Known Issues and To Do
+
+## v5.3.4-beta (2024-11-07)
+- Fix an issue where enabling and disabling Threshold Mode did not work properly via the CLI due to a parameter handling bug.
+- Implement a default behaviour of enabling Threshold Mode if a valid threshold is set with `-threshold-min`, unless it is accompanied by a `-threshold-enabled false` parameter that overrides it.
+- Improve `set` CLI/API commands to remove redundancy and eliminate the `cmd-` prefix, combining both command options and setting them based on whether they are specified; they can now be used as in the following example:
+  - `lbfeedback set commands -name default -command-interval 30`
+  - `lbfeedback set commands -name default -command-list default`
+  - `lbfeedback set commands -name default -command-interval 30 -command-list default`
+- Update documentation and help text accordingly.
+- Update the `build_linux.sh` script to automatically bundle the LICENSE and README.md files in the .tar.gz archive for distribution.
+- Prevent a possible runtime panic by implementing a missing null field check in the API handler for configuring HAProxy commands.
 
 ## v5.3.3-beta (2024-11-06)
 - Make the `-name` parameter optional for the `force` commands. If this parameter is omitted, all Responders for which HAProxy commands are not disabled will send the specified state.

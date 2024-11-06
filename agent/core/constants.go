@@ -23,7 +23,7 @@
 package agent
 
 const (
-	VersionString       string = "5.3.3-beta"
+	VersionString       string = "5.3.4-beta"
 	ProtocolHTTP        string = "http"
 	ProtocolTCP         string = "tcp"
 	ProtocolAPI         string = "http-api"
@@ -61,7 +61,7 @@ All other Actions are followed by an Action Type, as follows:
   get:
      config, feedback, sources
   set:
-     commands, cmd-threshold, cmd-interval
+     commands, threshold
   force:
      halt, drain, online, save-config
   send:

@@ -125,7 +125,7 @@ func CLIHandleAgentAction(actionName string, actionType string, argv []string) (
 	argListenPort := apiArgs.String("port", "", "")
 	argRequestTimeout := apiArgs.Int("request-timeout", 0, "")
 	argResponseTimeout := apiArgs.Int("response-timeout", 0, "")
-	argThresholdEnabled := apiArgs.Bool("threshold-enabled", true, "")
+	argThresholdEnabled := apiArgs.String("enable-threshold", "", "")
 	argScoreThreshold := apiArgs.Int("threshold-min", 0, "")
 	argCommandInterval := apiArgs.Int("command-interval", -1, "")
 
@@ -159,6 +159,10 @@ func CLIHandleAgentAction(actionName string, actionType string, argv []string) (
 		argCommandInterval = nil
 	}
 
+	if argCommandList != nil && strings.TrimSpace(*argCommandList) == "" {
+		argCommandList = nil
+	}
+
 	// Unset source max value if invalid.
 	if argSourceMaxValue != nil && *argSourceMaxValue < 0 {
 		argSourceMaxValue = nil
@@ -176,7 +180,7 @@ func CLIHandleAgentAction(actionName string, actionType string, argv []string) (
 		RequestTimeout:     argRequestTimeout,
 		ResponseTimeout:    argResponseTimeout,
 		CommandList:        argCommandList,
-		ThresholdEnabled:   argThresholdEnabled,
+		ThresholdEnabled:   new(bool),
 		ThresholdScore:     argScoreThreshold,
 		CommandInterval:    argCommandInterval,
 		SourceMonitorName:  argMonitorName,
@@ -189,6 +193,18 @@ func CLIHandleAgentAction(actionName string, actionType string, argv []string) (
 			ParamKeyScriptName: *argScriptName,
 			ParamKeyDiskPath:   *argDiskPath,
 		},
+	}
+
+	// Set parameter for threshold operations
+	if argThresholdEnabled != nil {
+		thresholdString := strings.TrimSpace(*argThresholdEnabled)
+		if thresholdString == "true" {
+			*request.ThresholdEnabled = true
+		} else if thresholdString == "false" {
+			*request.ThresholdEnabled = false
+		} else {
+			request.ThresholdEnabled = nil
+		}
 	}
 
 	// Workaround for * being expanded into a glob in bash

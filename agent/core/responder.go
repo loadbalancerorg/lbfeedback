@@ -57,7 +57,7 @@ type FeedbackResponder struct {
 	ResponseTimeout       time.Duration              `json:"response-timeout,omitempty"`
 	HAProxyCommands       string                     `json:"haproxy-commands,omitempty"`
 	CommandInterval       int                        `json:"command-interval,omitempty"`
-	ThresholdEnabled      bool                       `json:"threshold-enabled,omitempty"`
+	ThresholdEnabled      bool                       `json:"threshold-enabled"`
 	ThresholdScore        int                        `json:"threshold-score,omitempty"`
 	EnableOfflineInterval bool                       `json:"enable-offline-interval,omitempty"`
 

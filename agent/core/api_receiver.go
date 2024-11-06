@@ -202,10 +202,8 @@ func (agent *FeedbackAgent) apiActionTree(request *APIRequest, response *APIResp
 		switch request.Type {
 		case "commands", "cmd":
 			err = agent.APIHandleSetCommands(request, true)
-		case "cmd-threshold":
+		case "threshold":
 			err = agent.APIHandleSetThreshold(request)
-		case "cmd-interval":
-			err = agent.APIHandleSetInterval(request)
 		default:
 			unknownType = true
 		}
@@ -709,17 +707,25 @@ func (agent *FeedbackAgent) APIHandleSetThreshold(request *APIRequest) (
 		return
 	}
 	changed := true
+	enableThreshold := false
 	if request.ThresholdScore != nil {
-		res.ConfigureThresholdValue(*request.ThresholdScore)
+		err = res.ConfigureThresholdValue(*request.ThresholdScore)
+		if err != nil {
+			return
+		}
+		// If a valid threshold has been set, enable by default
+		enableThreshold = true
 		changed = true
 	}
 	if request.ThresholdEnabled != nil {
-		res.ConfigureThresholdEnabled(*request.ThresholdEnabled)
+		enableThreshold = *request.ThresholdEnabled
 		changed = true
 	}
 	if !changed {
 		err = errors.New("no threshold parameters specified")
 		return
+	} else {
+		res.ConfigureThresholdEnabled(enableThreshold)
 	}
 	agent.unsavedChanges = true
 	return
@@ -731,7 +737,18 @@ func (agent *FeedbackAgent) APIHandleSetCommands(request *APIRequest,
 	if err != nil {
 		return
 	}
-	err = res.ConfigureCommands(*request.CommandList, replace, false)
+	if request.CommandList != nil {
+		err = res.ConfigureCommands(*request.CommandList, replace, false)
+		if err != nil {
+			return
+		}
+	}
+	if request.CommandInterval != nil {
+		err = res.ConfigureInterval(*request.CommandInterval)
+		if err != nil {
+			return
+		}
+	}
 	agent.unsavedChanges = true
 	return
 }
