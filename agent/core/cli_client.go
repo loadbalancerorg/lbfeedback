@@ -125,7 +125,7 @@ func CLIHandleAgentAction(actionName string, actionType string, argv []string) (
 	argListenPort := apiArgs.String("port", "", "")
 	argRequestTimeout := apiArgs.Int("request-timeout", 0, "")
 	argResponseTimeout := apiArgs.Int("response-timeout", 0, "")
-	argThresholdEnabled := apiArgs.String("enable-threshold", "", "")
+	argThresholdEnabled := apiArgs.String("threshold-enabled", "", "")
 	argScoreThreshold := apiArgs.Int("threshold-min", 0, "")
 	argCommandInterval := apiArgs.Int("command-interval", -1, "")
 

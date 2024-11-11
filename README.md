@@ -85,6 +85,9 @@ Use `stress` or a similar tool to increase CPU utilisation and observe that by d
 
 ## Release Notes, Known Issues and To Do
 
+### v5.3.5-beta (2024-11-11)
+- Fix an issue where the state of a Feedback Responder is not correctly initialised if Threshold Mode is disabled. Many thanks to Neil Stone (neil.stone@loadbalancer.org) for the bug report.
+
 ### v5.3.4-beta (2024-11-07)
 - Fix an issue where enabling and disabling Threshold Mode did not work properly via the CLI due to a parameter handling bug.
 - Implement a default behaviour of enabling Threshold Mode if a valid threshold is set with `-threshold-min`, unless it is accompanied by a `-threshold-enabled false` parameter that overrides it.

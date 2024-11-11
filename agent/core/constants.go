@@ -23,7 +23,7 @@
 package agent
 
 const (
-	VersionString       string = "5.3.4-beta"
+	VersionString       string = "5.3.5-beta"
 	ProtocolHTTP        string = "http"
 	ProtocolTCP         string = "tcp"
 	ProtocolAPI         string = "http-api"

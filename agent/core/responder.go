@@ -629,10 +629,9 @@ func (fbr *FeedbackResponder) run(initChannel chan int) {
 	fbr.LastError = nil
 	fbr.statusChannel = initChannel
 	fbr.runState = true
-	// Send current command for the interval (if enabled)
-	// when the responder is first launched.
-	fbr.resetStateExpiry()
 	fbr.mutex.Unlock()
+	// Initialise the current command state of the responder.
+	fbr.SetHAPCommandState(true, false, HAPEnumNone)
 	// -- We are now running.
 	// Announce that we are now running to whatever called us.
 	fbr.statusChannel <- ServiceStateRunning
