@@ -40,7 +40,7 @@ The Loadbalancer.org Feedback Agent v5 is cross-platform and concurrent, written
 `rm -Rvf /opt/lbfeedback`
 - Open a new console window and launch the Agent background service in the foreground to view the console events in real time, which are also sent to the log file:<br/>
 `sudo lbfeedback run-agent`
-- Verify that you are testing the correct version of the Feedback Agent binary, which at the time of writing is `5.3.4-beta`. This is printed in the masthead shown on application launch as well as the log message printed on startup.
+- Verify that you are testing the correct version of the Feedback Agent binary, which at the time of writing is `5.3.5-beta`. This is printed in the masthead shown on application launch as well as the log message printed on startup.
 - Verify from the console that the agent initialises with default parameters consisting of the following and writes a new configuration file:
   - A single CPU mode System Monitor named "cpu".
   - A single TCP mode Responder listening on all IPs on port 3333 named "default", with a single monitor source of the "cpu" default monitor.
