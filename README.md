@@ -1,6 +1,6 @@
 # Loadbalancer.org Feedback Agent: The Next Generation
 
-## Project Overview
+## Project overview
 
 This is the new Loadbalancer.org Feedback Agent Version 5 -- designed to boldly go where no HAProxy Feedback Agent has gone before. 
 
@@ -11,6 +11,8 @@ The Agent Service provides a comprehensive JSON Application Programming Interfac
 The Feedback Agent service creates its own log and configuration directories, as well as a default configuration file, where these are missing. The agent will build and run "out of the box" on most POSIX platforms (currently Linux, NetBSD and macOS) and the Linux binary is intended to be as dependency-free as possible.
 
 There is a Windows service wrapper currently in development with an accompanying Windows System Tray configuration tool.
+
+For support, bug reports and feature requests, please contact Loadbalancer.org at <support@loadbalancer.org>.
 
 
 ## Installing the Feedback Agent
