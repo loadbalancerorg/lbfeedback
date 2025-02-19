@@ -110,6 +110,7 @@ const (
 	// that they are actioned in the right order of precedence. This is
 	// done by the order of the enums and with a positive flag being
 	// included for both online and offline states.
+
 	HAPEnumNone    = 0x000
 	HAPMaskState   = 0xF00
 	HAPMaskCommand = 0x0FF
@@ -231,7 +232,10 @@ func (fbr *FeedbackResponder) Initialise() (err error) {
 		fbr.FeedbackSources = make(map[string]*FeedbackSource)
 	}
 	// -- Process/validate parameters.
-	// Network protocol for the responder (defined in the Connector).
+	if fbr.ProtocolName == ProtocolLegacyAPI {
+		logrus.Warn("Legacy plaintext HTTP API transport specified; forcing to HTTPS mode.")
+		fbr.ProtocolName = ProtocolSecureAPI
+	}
 	fbr.Connector, err = NewFeedbackConnector(fbr.ProtocolName)
 	if err != nil {
 		return
@@ -244,8 +248,9 @@ func (fbr *FeedbackResponder) Initialise() (err error) {
 	if err != nil {
 		return
 	}
-	// Skip source/command initialisation if this is an API responder.
-	if fbr.ProtocolName == ProtocolAPI || len(fbr.FeedbackSources) < 1 {
+	// Skip source/command initialisation if this is an API responder, or it
+	// has no feedback sources defined.
+	if fbr.ProtocolName == ProtocolSecureAPI || len(fbr.FeedbackSources) < 1 {
 		return
 	}
 	commands := fbr.HAProxyCommands
@@ -273,9 +278,11 @@ func (fbr *FeedbackResponder) ConfigureCommands(commands string, replace bool,
 	// Configure the HAProxy commands for this responder.
 	commands = strings.TrimSpace(commands)
 	if commands == "" {
-		err = errors.New(fbr.getLogHead() + ": no HAProxy command " +
-			"configuration specified; perhaps you meant 'none' or " +
-			"'default'?")
+		err = errors.New(
+			fbr.getLogHead() + ": no HAProxy command " +
+				"configuration specified; perhaps you meant 'none' or " +
+				"'default'?",
+		)
 		return
 	}
 	err = fbr.setHAPCommandMask(commands, replace, unset)
@@ -284,8 +291,10 @@ func (fbr *FeedbackResponder) ConfigureCommands(commands string, replace bool,
 
 func (fbr *FeedbackResponder) ConfigureInterval(interval int) (err error) {
 	if interval < 1 {
-		err = errors.New(fbr.getLogHead() + ": invalid HAProxy command " +
-			"interval; use '0' to always send (interval disabled).")
+		err = errors.New(
+			fbr.getLogHead() + ": invalid HAProxy command " +
+				"interval; use '0' to always send (interval disabled).",
+		)
 	}
 	fbr.setInterval(interval)
 	return
@@ -299,20 +308,26 @@ func (fbr *FeedbackResponder) initialiseSources() (err error) {
 	for key, source := range fbr.FeedbackSources {
 		monitor, exists := fbr.ParentAgent.Monitors[key]
 		if !exists {
-			err = errors.New("cannot initialise responder: monitor '" +
-				key + "' not found")
+			err = errors.New(
+				"cannot initialise responder: monitor '" +
+					key + "' not found",
+			)
 			return
 		}
 		// Apply defaults for the significance and max value if
 		// they are out of range for the required values.
 		if source.Significance < 0.0 || source.Significance > 1.0 {
-			err = errors.New("'" + key + "': significance out of range: " +
-				"must be between 0.0-1.0")
+			err = errors.New(
+				"'" + key + "': significance out of range: " +
+					"must be between 0.0-1.0",
+			)
 			return
 		}
 		if source.MaxValue < 0 {
-			err = errors.New("'" + key + "': max value out of range:" +
-				"cannot be negative")
+			err = errors.New(
+				"'" + key + "': max value out of range:" +
+					"cannot be negative",
+			)
 			return
 		}
 		source.Monitor = monitor
@@ -323,44 +338,54 @@ func (fbr *FeedbackResponder) initialiseSources() (err error) {
 		// Log details of this source so the user can see what's configured
 		// when the agent is configured.
 	}
-	logrus.Info(fbr.getLogHead() + ": calculating relative significances, " +
-		"total " + fmt.Sprintf("%.2f", totalSignificance) + ".")
+	logrus.Info(
+		fbr.getLogHead() + ": calculating relative significances, " +
+			"total " + fmt.Sprintf("%.2f", totalSignificance) + ".",
+	)
 
 	// Set the scaled significance for each source monitor, i.e. the fraction
 	// of the total significance values specified that each monitor represents.
 	for key, source := range fbr.FeedbackSources {
 		source.RelativeSignificance = source.Significance / totalSignificance
 		logrus.Info("Responder '" + fbr.ResponderName +
-			": name '" + key +
-			"', type '" + source.Monitor.MetricType +
-			"': " + fmt.Sprintf("%.2f", source.Significance) +
-			" -> relative " + fmt.Sprintf("%.2f",
-			source.RelativeSignificance) + ".")
+			"': name '" + key + "', type '" +
+			source.Monitor.MetricType + "': " +
+			fmt.Sprintf("%.2f", source.Significance) +
+			" -> relative " +
+			fmt.Sprintf("%.2f", source.RelativeSignificance) + ".",
+		)
 	}
 	return
 }
 
-func (fbr *FeedbackResponder) AddFeedbackSource(name string,
+func (fbr *FeedbackResponder) AddFeedbackSource(
+	name string,
 	significance *float64, maxValue *int64) (err error) {
 	fbr.mutex.Lock()
 	defer fbr.mutex.Unlock()
 	name = strings.TrimSpace(name)
 	if name == "" {
-		err = errors.New(fbr.getLogHead() +
-			": empty monitor name")
+		err = errors.New(
+			fbr.getLogHead() +
+				": empty monitor name",
+		)
 		return
 	}
 	mon, exists := fbr.ParentAgent.Monitors[name]
 	if !exists {
-		err = errors.New(fbr.getLogHead() +
-			": monitor '" + name + "' does not exist")
+		err = errors.New(
+			fbr.getLogHead() +
+				": monitor '" + name + "' does not exist",
+		)
 		return
 	}
 	_, exists = fbr.FeedbackSources[name]
 	if exists {
-		err = errors.New(fbr.getLogHead() +
-			": source monitor '" + name +
-			"' is already attached to this Responder")
+		err = errors.New(
+			fbr.getLogHead() +
+				": source monitor '" + name +
+				"' is already attached to this Responder",
+		)
 		return
 	}
 	if significance == nil {
@@ -385,29 +410,34 @@ func (fbr *FeedbackResponder) AddFeedbackSource(name string,
 	return
 }
 
-func (fbr *FeedbackResponder) EditFeedbackSource(name string,
-	significance *float64, maxValue *int64) (err error) {
+func (fbr *FeedbackResponder) EditFeedbackSource(name string, significance *float64, maxValue *int64) (err error) {
 	fbr.mutex.Lock()
 	defer fbr.mutex.Unlock()
 	source, exists := fbr.FeedbackSources[name]
 	if !exists {
-		err = errors.New(fbr.getLogHead() +
-			": monitor '" + name +
-			"' does not exist as a source for this responder")
+		err = errors.New(
+			fbr.getLogHead() +
+				": monitor '" + name +
+				"' does not exist as a source for this responder",
+		)
 		return
 	}
 	if significance != nil {
 		if *significance < 0.0 || *significance > 1.0 {
-			err = errors.New(fbr.getLogHead() +
-				": significance out of range")
+			err = errors.New(
+				fbr.getLogHead() +
+					": significance out of range",
+			)
 			return
 		}
 		source.Significance = *significance
 	}
 	if maxValue != nil {
 		if *maxValue < 0 {
-			err = errors.New(fbr.getLogHead() +
-				": max value out of range")
+			err = errors.New(
+				fbr.getLogHead() +
+					": max value out of range",
+			)
 			return
 		}
 		source.MaxValue = *maxValue
@@ -419,15 +449,16 @@ func (fbr *FeedbackResponder) EditFeedbackSource(name string,
 	return
 }
 
-func (fbr *FeedbackResponder) DeleteFeedbackSource(name string) (
-	err error) {
+func (fbr *FeedbackResponder) DeleteFeedbackSource(name string) (err error) {
 	fbr.mutex.Lock()
 	defer fbr.mutex.Unlock()
 	_, exists := fbr.FeedbackSources[name]
 	if !exists {
-		err = errors.New(fbr.getLogHead() +
-			": monitor '" + name +
-			"' does not exist as a source for this responder")
+		err = errors.New(
+			fbr.getLogHead() +
+				": monitor '" + name +
+				"' does not exist as a source for this responder",
+		)
 		return
 	}
 	delete(fbr.FeedbackSources, name)
@@ -463,8 +494,10 @@ func (fbr *FeedbackResponder) setHAPCommandMask(commands string,
 		for _, command := range split {
 			enum, exists := fbr.commandToEnum[command]
 			if !exists {
-				err = errors.New("invalid HAProxy feedback command: '" +
-					command + "'")
+				err = errors.New(
+					"invalid HAProxy feedback command: '" +
+						command + "'",
+				)
 				return
 			}
 			// Include this mask by ORing it into the current change mask
@@ -487,8 +520,10 @@ func (fbr *FeedbackResponder) setHAPCommandMask(commands string,
 	if commands == HAPConfigNone || commands == HAPConfigDefault {
 		fbr.HAProxyCommands = commands
 	} else {
-		fbr.HAProxyCommands = fbr.CommandMaskToString(fbr.configCommandMask,
-			HAPMaskCommand, HAPMaskAll)
+		fbr.HAProxyCommands = fbr.CommandMaskToString(
+			fbr.configCommandMask,
+			HAPMaskCommand, HAPMaskAll,
+		)
 	}
 	fbr.resetStateExpiry()
 	return
@@ -529,8 +564,10 @@ func ParseIPAddress(ip string) (result string, err error) {
 	// Otherwise, try to parse it
 	parsedIP := net.ParseIP(strings.TrimSpace(fmt.Sprint(ip)))
 	if parsedIP == nil {
-		err = errors.New("invalid IP address '" + ip +
-			"' specified; use 'any' (CLI) or '*' (API) to listen on all IPs")
+		err = errors.New(
+			"invalid IP address '" + ip +
+				"' specified; use 'any' (CLI) or '*' (API) to listen on all IPs",
+		)
 		return
 	}
 	result = parsedIP.String()
@@ -543,9 +580,11 @@ func (fbr *FeedbackResponder) Start() (err error) {
 	fbr.mutex.Lock()
 	defer fbr.mutex.Unlock()
 	logLine := fbr.getLogHead()
-	if len(fbr.FeedbackSources) < 1 && fbr.ProtocolName != ProtocolAPI {
-		logrus.Warn("Warning: " + logLine +
-			"currently has no monitor sources configured.")
+	if len(fbr.FeedbackSources) < 1 && fbr.ProtocolName != ProtocolSecureAPI {
+		logrus.Warn(
+			"Warning: " + logLine +
+				"currently has no monitor sources configured.",
+		)
 	}
 	initChannel := make(chan int)
 	go fbr.run(initChannel)
@@ -662,8 +701,9 @@ func (fbr *FeedbackResponder) SetHAPCommandState(isOnline bool, force bool,
 
 // Resets the current HAProxy command state expiry.
 func (fbr *FeedbackResponder) resetStateExpiry() {
-	fbr.stateExpiry = time.Now().Add(time.Second *
-		time.Duration(fbr.CommandInterval))
+	fbr.stateExpiry = time.Now().Add(
+		time.Second * time.Duration(fbr.CommandInterval),
+	)
 }
 
 // Sets the command threshold for this [FeedbackResponder].
@@ -797,12 +837,14 @@ func (fbr *FeedbackResponder) GetResponse(request string) (response string,
 		defer func() {
 			err := recover()
 			if err != nil {
-				logrus.Error("An internal error occurred during a " +
-					"response:\n   " + fmt.Sprint(err))
+				logrus.Error(
+					"An internal error occurred during a " +
+						"response:\n   " + fmt.Sprint(err),
+				)
 			}
 		}()
 	}
-	if fbr.ProtocolName == ProtocolAPI {
+	if fbr.ProtocolName == ProtocolSecureAPI {
 		response, _, quitAfter = fbr.ParentAgent.ReceiveAPIRequest(request)
 	} else {
 		response = fbr.HandleFeedback()

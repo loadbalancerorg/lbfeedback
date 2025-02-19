@@ -20,6 +20,7 @@ package agent
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -39,12 +40,18 @@ type ProtocolConnector interface {
 	Close() (err error)
 }
 
+// NewFeedbackConnector creates a new connector for a given protocol and (if required)
+// the configuration path containing the TLS certificate and key.
 func NewFeedbackConnector(protocol string) (conn ProtocolConnector, err error) {
 	switch protocol {
-	case ProtocolHTTP, ProtocolAPI:
-		conn = &HTTPConnector{}
 	case ProtocolTCP:
 		conn = &TCPConnector{}
+	case ProtocolHTTP:
+		conn = &HTTPConnector{}
+	case ProtocolHTTPS, ProtocolSecureAPI:
+		conn = &HTTPConnector{
+			enableTLS: true,
+		}
 	default:
 		err = errors.New("invalid protocol '" + protocol + "' specified")
 	}
@@ -56,8 +63,8 @@ func NewFeedbackConnector(protocol string) (conn ProtocolConnector, err error) {
 // #################################
 
 type TCPConnector struct {
-	tcpListener net.Listener       `json:"-"`
-	responder   *FeedbackResponder `json:"-"`
+	tcpListener net.Listener
+	responder   *FeedbackResponder
 }
 
 func (pc *TCPConnector) Listen(fbr *FeedbackResponder) (err error) {
@@ -107,8 +114,9 @@ func (pc *TCPConnector) Close() (err error) {
 // #################################
 
 type HTTPConnector struct {
-	httpServer *http.Server       `json:"-"`
-	responder  *FeedbackResponder `json:"-"`
+	httpServer *http.Server
+	responder  *FeedbackResponder
+	enableTLS  bool
 }
 
 func (pc *HTTPConnector) Listen(fbr *FeedbackResponder) (err error) {
@@ -128,11 +136,31 @@ func (pc *HTTPConnector) Listen(fbr *FeedbackResponder) (err error) {
 		ReadTimeout:  fbr.RequestTimeout,
 		WriteTimeout: fbr.ResponseTimeout,
 	}
-	// ListenAndServe() will block here until the server returns an
-	// error. As we have unlocked the mutex, Stop() will be able to
-	// call the method on the HTTP server to tell it to stop.
-	err = pc.httpServer.ListenAndServe()
-	if err != nil && err != http.ErrServerClosed {
+	// ListenAndServe/ListenAndServeTLS will block here until the server
+	// returns an error. As we have unlocked the mutex in the parent Responder,
+	// fbr.Stop will be able to call the method on the HTTP server to tell it to stop.
+	if pc.enableTLS {
+		// -- This responder is in HTTPS mode with TLS.
+		// Sanity check that a TLS certificate is configured first.
+		if fbr.ParentAgent.TLSCertificate == nil {
+			err = errors.New("empty TLS certificate; unable to serve HTTPS")
+			return
+		}
+		// Set the certificate in the TLS config for the server
+		pc.httpServer.TLSConfig = &tls.Config{
+			Certificates: []tls.Certificate{
+				*fbr.ParentAgent.TLSCertificate,
+			},
+		}
+		// ListenAndServeTLS will ignore the path strings as we have specified
+		// the TLS config in the server object above, so these are empty.
+		err = pc.httpServer.ListenAndServeTLS("", "")
+	} else {
+		// -- This responder is in HTTP mode.
+		err = pc.httpServer.ListenAndServe()
+	}
+	// Report an error if the result was anything other than the server closing.
+	if err != nil && !errors.Is(err, http.ErrServerClosed) {
 		logrus.Error("HTTP error: " + err.Error())
 	}
 	return
@@ -144,7 +172,7 @@ func (pc *HTTPConnector) handleRequest(w http.ResponseWriter, r *http.Request) {
 	// Can't return the error here, since this is a callback from http
 	// $ TO DO: Deal with what happens if we can't read the HTTP body
 	if err != nil {
-		logrus.Error("failed to read HTTP response")
+		logrus.Error("failed to read HTTP request body: " + err.Error())
 	}
 	response, quitAfterResponse := pc.responder.GetResponse(string(body))
 	// Send response to writer (and therefore to the client).
