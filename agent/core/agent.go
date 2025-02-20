@@ -29,12 +29,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/sirupsen/logrus"
 	"io"
 	"os"
 	"path"
 	"strings"
-
-	"github.com/sirupsen/logrus"
 )
 
 // FeedbackAgent represents the main parent service which runs a configured
@@ -715,10 +714,11 @@ func (agent *FeedbackAgent) AddResponder(name string,
 		)
 		return
 	}
-	var responder *FeedbackResponder
-	responder, err = NewResponder(
+	responder, err := NewResponder(
 		name, sources, protocol,
-		ip, port, hapCommands, enableThreshold, hapThreshold, agent,
+		ip, port, hapCommands,
+		enableThreshold, hapThreshold,
+		agent,
 	)
 	if err != nil {
 		err = errors.New(
