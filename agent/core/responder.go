@@ -584,7 +584,9 @@ func (fbr *FeedbackResponder) Start() (err error) {
 	fbr.mutex.Lock()
 	defer fbr.mutex.Unlock()
 	logLine := fbr.getLogHead()
-	if len(fbr.FeedbackSources) < 1 && fbr.ProtocolName != ProtocolSecureAPI {
+	if len(fbr.FeedbackSources) < 1 &&
+		fbr.ProtocolName != ProtocolSecureAPI &&
+		fbr.ProtocolName != ProtocolLegacyAPI {
 		logrus.Warn(
 			"Warning: " + logLine +
 				"currently has no monitor sources configured.",
@@ -835,20 +837,18 @@ func (fbr *FeedbackResponder) HandleFeedback() (feedback string) {
 
 // Gets a string response from this [FeedbackResponder], which will depend
 // on its configuration and what it is supposed to do.
-func (fbr *FeedbackResponder) GetResponse(request string) (response string,
-	quitAfter bool) {
+func (fbr *FeedbackResponder) GetResponse(request string) (response string, quitAfter bool) {
 	if !PanicDebug {
 		defer func() {
 			err := recover()
 			if err != nil {
-				logrus.Error(
-					"An internal error occurred during a " +
-						"response:\n   " + fmt.Sprint(err),
+				logrus.Error("An internal error occurred during a " +
+					"response:\n   " + fmt.Sprint(err),
 				)
 			}
 		}()
 	}
-	if fbr.ProtocolName == ProtocolSecureAPI {
+	if fbr.ProtocolName == ProtocolSecureAPI || fbr.ProtocolName == ProtocolLegacyAPI {
 		response, _, quitAfter = fbr.ParentAgent.ReceiveAPIRequest(request)
 	} else {
 		response = fbr.HandleFeedback()

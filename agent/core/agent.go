@@ -23,9 +23,7 @@
 package agent
 
 import (
-	"crypto/rand"
 	"crypto/tls"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -90,6 +88,8 @@ func (agent *FeedbackAgent) agentMain() (exitStatus int) {
 		logrus.Error("TLS initialisation failed: " + err.Error())
 		exitStatus = ExitStatusError
 		return
+	} else {
+		logrus.Info("Successfully generated a new TLS certificate.")
 	}
 	// Try to load a configuration from a config file, or else set up
 	// the agent defaults.
@@ -587,16 +587,6 @@ func (agent *FeedbackAgent) SetDefaultServiceConfig() (err error) {
 	return
 }
 
-// Generates a random hex string for a specified number of bytes.
-func RandomHexBytes(n int) (str string) {
-	bytes := make([]byte, n)
-	_, err := rand.Read(bytes)
-	if err == nil {
-		str = hex.EncodeToString(bytes)
-	}
-	return
-}
-
 // Outputs this agent object's configuration as JSON.
 func (agent *FeedbackAgent) ConfigToJSON() (output []byte, err error) {
 	output, err = json.MarshalIndent(agent, "", "    ")
@@ -747,11 +737,6 @@ func (agent *FeedbackAgent) GenerateTLSCertificate() (err error) {
 func (agent *FeedbackAgent) InitialiseServiceMaps() {
 	agent.Monitors = make(map[string]*SystemMonitor)
 	agent.Responders = make(map[string]*FeedbackResponder)
-}
-
-func RemoveExtraSpaces(str string) (result string) {
-	result = strings.Join(strings.Fields(str), " ")
-	return
 }
 
 // -------------------------------------------------------------------

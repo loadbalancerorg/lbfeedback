@@ -29,6 +29,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/pem"
 	"errors"
 	"math/big"
 	"time"
@@ -61,25 +62,29 @@ func GetNewTLSCertificate(expiresInHours int) (cert *tls.Certificate, err error)
 		err = errors.New("failed to generate private key: " + err.Error())
 		return
 	}
-	// Create the certificate from the template and private key as a PEM byte array.
-	certBytes, err := x509.CreateCertificate(rand.Reader, &template, &template,
+	// Create the certificate from the template and private key as a DER byte array.
+	derCertBytes, err := x509.CreateCertificate(rand.Reader, &template, &template,
 		&key.PublicKey, key,
 	)
 	if err != nil {
 		err = errors.New("failed to generate certificate: " + err.Error())
 		return
 	}
-	// Convert the private key into an X509 PEM byte array.
-	keyBytes, err := x509.MarshalPKCS8PrivateKey(key)
+	// Convert the private key into an X509 DER byte array.
+	derKeyBytes, err := x509.MarshalPKCS8PrivateKey(key)
 	if err != nil {
 		err = errors.New("failed to convert private key to PEM format: " + err.Error())
 		return
 	}
-	// Parse the two PEM formatted blocks into a tls.Certificate object.
-	*cert, err = tls.X509KeyPair(certBytes, keyBytes)
+	// Parse the two DER formatted blocks into a tls.Certificate object. Note that we
+	// have to first convert these to PEM format as that is what the TLS package expects.
+	pemCertBytes := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derCertBytes})
+	pemKeyBytes := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: derKeyBytes})
+	certObject, err := tls.X509KeyPair(pemCertBytes, pemKeyBytes)
 	if err != nil {
 		err = errors.New("failed to parse public/private key pair: " + err.Error())
 		return
 	}
+	cert = &certObject
 	return
 }

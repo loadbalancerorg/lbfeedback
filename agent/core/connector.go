@@ -135,6 +135,7 @@ func (pc *HTTPConnector) Listen(fbr *FeedbackResponder) (err error) {
 		Handler:      http.HandlerFunc(pc.handleRequest),
 		ReadTimeout:  fbr.RequestTimeout,
 		WriteTimeout: fbr.ResponseTimeout,
+		ErrorLog:     NewNullLogger(),
 	}
 	// ListenAndServe/ListenAndServeTLS will block here until the server
 	// returns an error. As we have unlocked the mutex in the parent Responder,

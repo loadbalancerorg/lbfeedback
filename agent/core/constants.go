@@ -39,7 +39,7 @@ const (
 	LocalPathMode       bool   = false
 	CopyrightYear       string = "2025"
 	PanicDebug          bool   = false
-	ForceAPISecure      bool   = false
+	ForceAPISecure      bool   = true
 	TLSCertExpiryHours  int    = 48
 )
 
