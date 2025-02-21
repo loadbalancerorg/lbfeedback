@@ -84,9 +84,16 @@ func (agent *FeedbackAgent) Run() (exitStatus int) {
 
 // agentMain executes the agent, returning an exit status.
 func (agent *FeedbackAgent) agentMain() (exitStatus int) {
+	// Generate a new TLS certificate prior to trying to load any config.
+	err := agent.GenerateTLSCertificate()
+	if err != nil {
+		logrus.Error("TLS initialisation failed: " + err.Error())
+		exitStatus = ExitStatusError
+		return
+	}
 	// Try to load a configuration from a config file, or else set up
 	// the agent defaults.
-	err := agent.LoadOrCreateConfig()
+	err = agent.LoadOrCreateConfig()
 	if err != nil {
 		logrus.Error("Configuration of Feedback Agent services failed.")
 		exitStatus = ExitStatusError
@@ -728,6 +735,11 @@ func (agent *FeedbackAgent) AddResponder(name string,
 		return
 	}
 	agent.Responders[name] = responder
+	return
+}
+
+func (agent *FeedbackAgent) GenerateTLSCertificate() (err error) {
+	agent.TLSCertificate, err = GetNewTLSCertificate(TLSCertExpiryHours)
 	return
 }
 

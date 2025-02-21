@@ -34,7 +34,7 @@ import (
 	"time"
 )
 
-func GenerateTLSCertificate() (cert *tls.Certificate, expiresInHours int, err error) {
+func GetNewTLSCertificate(expiresInHours int) (cert *tls.Certificate, err error) {
 	// Generate a random serial 128-bit serial number for the cert.
 	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
 	serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
@@ -45,10 +45,10 @@ func GenerateTLSCertificate() (cert *tls.Certificate, expiresInHours int, err er
 	// Build the certificate template with the required configuration.
 	template := x509.Certificate{
 		SerialNumber: serialNumber,
+		DNSNames:     []string{"localhost"},
 		Subject: pkix.Name{
 			Organization: []string{"Loadbalancer.org Limited"},
 		},
-		DNSNames:              []string{"localhost"},
 		NotBefore:             time.Now(),
 		NotAfter:              time.Now().Add(time.Duration(int64(expiresInHours) * int64(time.Hour))),
 		KeyUsage:              x509.KeyUsageDigitalSignature,

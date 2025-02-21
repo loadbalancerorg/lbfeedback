@@ -46,7 +46,7 @@ func NewFeedbackConnector(protocol string) (conn ProtocolConnector, err error) {
 	switch protocol {
 	case ProtocolTCP:
 		conn = &TCPConnector{}
-	case ProtocolHTTP:
+	case ProtocolHTTP, ProtocolLegacyAPI:
 		conn = &HTTPConnector{}
 	case ProtocolHTTPS, ProtocolSecureAPI:
 		conn = &HTTPConnector{

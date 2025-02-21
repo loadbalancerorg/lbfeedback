@@ -39,6 +39,8 @@ const (
 	LocalPathMode       bool   = false
 	CopyrightYear       string = "2025"
 	PanicDebug          bool   = false
+	ForceAPISecure      bool   = false
+	TLSCertExpiryHours  int    = 48
 )
 
 var ShellBanner string = `

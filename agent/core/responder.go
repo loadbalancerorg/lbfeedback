@@ -44,7 +44,7 @@ const (
 // FeedbackResponder
 // #######################################################################
 
-// [FeedbackResponder] implements a Feedback Responder service which uses
+// FeedbackResponder implements a Feedback Responder service which uses
 // the specified [ProtocolConnector] to listen for and respond to clients
 // from data obtained via the associated [SystemMonitor] objects.
 type FeedbackResponder struct {
@@ -233,8 +233,12 @@ func (fbr *FeedbackResponder) Initialise() (err error) {
 	}
 	// -- Process/validate parameters.
 	if fbr.ProtocolName == ProtocolLegacyAPI {
-		logrus.Warn("Legacy plaintext HTTP API transport specified; forcing to HTTPS mode.")
-		fbr.ProtocolName = ProtocolSecureAPI
+		alertMsg := "Insecure legacy plaintext HTTP API transport specified in configuration."
+		if ForceAPISecure {
+			fbr.ProtocolName = ProtocolSecureAPI
+			alertMsg += " Forcing to HTTPS mode."
+		}
+		logrus.Warn(alertMsg)
 	}
 	fbr.Connector, err = NewFeedbackConnector(fbr.ProtocolName)
 	if err != nil {
