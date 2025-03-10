@@ -23,12 +23,13 @@
 package agent
 
 const (
-	VersionString       string = "5.3.6-beta"
+	VersionString       string = "5.3.6"
 	ProtocolHTTP        string = "http"
 	ProtocolHTTPS       string = "https"
 	ProtocolTCP         string = "tcp"
 	ProtocolSecureAPI   string = "https-api"
 	ProtocolLegacyAPI   string = "http-api"
+	ResponderNameAPI    string = "api"
 	ApplicationName     string = "Loadbalancer.org Feedback Agent"
 	AppIdentifier       string = "lbfeedback"
 	ServiceStateStopped int    = 1

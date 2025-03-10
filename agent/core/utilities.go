@@ -29,22 +29,30 @@ import (
 	"strings"
 )
 
+// NullWriter is an I/O writer which does nothing, used for creating
+// Loggers that don't log anywhere, so that log output can be selectively
+// discarded without changing logging parameters globally.
 type NullWriter struct{}
 
+// Write accepts an array of bytes, and does precisely nothing with them.
 func (NullWriter) Write([]byte) (int, error) {
 	return 0, nil
 }
 
+// NewNullLogger returns a new Logger instance that outputs to a [NullWriter],
+// which in turn does absolutely nothing.
 func NewNullLogger() *log.Logger {
 	return log.New(&NullWriter{}, "", log.LstdFlags)
 }
 
+// RemoveExtraSpaces converts any repeated spaces in a string into single spaces
+// and discards any that are leading or trailing.
 func RemoveExtraSpaces(str string) (result string) {
 	result = strings.Join(strings.Fields(str), " ")
 	return
 }
 
-// Generates a random hex string for a specified number of bytes.
+// RandomHexBytes generates a random hex string that is a specified number of bytes long.
 func RandomHexBytes(n int) (str string) {
 	bytes := make([]byte, n)
 	_, err := rand.Read(bytes)

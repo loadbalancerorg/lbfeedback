@@ -24,6 +24,7 @@ package agent
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -79,10 +80,9 @@ func RunClientCLI() (status int) {
 			}
 		}
 	}
-	responseObject, _, err := CLIHandleAgentAction(
-		actionName,
-		actionType, actionArgs,
-	)
+	// Handle the specified action.
+	responseObject, _, err := CLIHandleAgentAction(actionName, actionType, actionArgs)
+	// Print any errors that occur.
 	if err != nil {
 		println("Error: " + err.Error() + ".")
 		status = ExitStatusError
@@ -104,9 +104,11 @@ func RunClientCLI() (status int) {
 			}
 		}
 	}
-	resultMsg := "was successful"
+	resultMsg := ""
 	if responseObject == nil || !responseObject.Success {
 		resultMsg = "could not be completed"
+	} else {
+		resultMsg = "was successful"
 	}
 	println("The operation " + resultMsg + ".")
 	return
@@ -232,17 +234,28 @@ func CLIHandleAgentAction(actionName string, actionType string, argv []string) (
 	}
 	// Set the API key in the new request and build the URL.
 	request.APIKey = key
-	apiURL := "http://" + ip + ":" + port
+	apiURL := "https://" + ip + ":" + port
 	// Marshal the request into JSON to send to the agent API.
 	reqBodyJSON, err := json.MarshalIndent(request, "", "    ")
 	if err != nil {
 		return
 	}
+	// Create a custom transport with the certificate validation
+	// checking disabled. Really, we should at some point implement
+	// a method for setting a custom CA which is shared between the
+	// agent and the client, but this will have to suffice for now.
+	customTransport := http.DefaultTransport.(*http.Transport).Clone()
+	customTransport.TLSClientConfig = &tls.Config{
+		InsecureSkipVerify: true,
+	}
+	client := &http.Client{Transport: customTransport}
 	// Send the marshalled JSON to the API via HTTP.
-	httpResponse, err := http.Post(
-		apiURL, "application/json",
+	httpResponse, err := client.Post(
+		apiURL,
+		"application/json",
 		bytes.NewBuffer(reqBodyJSON),
 	)
+	// Handle any resulting errors.
 	if err != nil {
 		err = errors.New(
 			err.Error() + "\nThe CLI Client " +

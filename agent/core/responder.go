@@ -35,11 +35,6 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-const (
-	HAProxyCommandUp   string = "up"
-	HAProxyCommandDown string = "down"
-)
-
 // #######################################################################
 // FeedbackResponder
 // #######################################################################
@@ -48,7 +43,7 @@ const (
 // the specified [ProtocolConnector] to listen for and respond to clients
 // from data obtained via the associated [SystemMonitor] objects.
 type FeedbackResponder struct {
-	// JSON configuration fields for [FeedbackResponder].
+	// -- JSON configuration fields for [FeedbackResponder].
 	ProtocolName          string                     `json:"protocol"`
 	ListenIPAddress       string                     `json:"ip"`
 	ListenPort            string                     `json:"port"`
@@ -61,35 +56,37 @@ type FeedbackResponder struct {
 	ThresholdScore        int                        `json:"threshold-score,omitempty"`
 	EnableOfflineInterval bool                       `json:"enable-offline-interval,omitempty"`
 
-	// Internal configuration fields.
+	// -- Exported configuration fields.
 	ResponderName string            `json:"-"`
 	Connector     ProtocolConnector `json:"-"`
 	LastError     error             `json:"-"`
 	ParentAgent   *FeedbackAgent    `json:"-"`
-	runState      bool              `json:"-"`
-	mutex         *sync.Mutex       `json:"-"`
-	statusChannel chan int          `json:"-"`
+
+	// -- Internal configuration fields.
+	runState      bool
+	mutex         *sync.Mutex
+	statusChannel chan int
 
 	// Lookup tables for command enums and strings.
-	commandToEnum    map[string]int `json:"-"`
-	enumToCommand    map[int]string `json:"-"`
-	commandEnumOrder []int          `json:"-"`
+	commandToEnum    map[string]int
+	enumToCommand    map[int]string
+	commandEnumOrder []int
 
 	// The last command state (online or offline) seen.
-	onlineState bool `json:"-"`
+	onlineState bool
 
 	// Current HAProxy commands that are enabled for this responder.
-	configCommandMask int `json:"-"`
-	overrideMask      int `json:"-"`
+	configCommandMask int
+	overrideMask      int
 
 	// If DisableCommandInterval is false, the timestamp when the current
 	// state expires (and is therefore no longer sent in responses).
-	stateExpiry time.Time `json:"-"`
+	stateExpiry time.Time
 
 	// Force the command to be sent for an entire interval, or
 	// allow it to be interrupted if the feedback score falls
 	// within the "up" threshold range?
-	forceCommandState bool `json:"-"`
+	forceCommandState bool
 }
 
 // Defines a source mapping for a [FeedbackResponder] to a

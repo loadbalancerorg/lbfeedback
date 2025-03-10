@@ -42,9 +42,9 @@ type APIRequest struct {
 	ThresholdScore   *int                        `json:"threshold-min,omitempty"`
 
 	// API fields for [SourceMonitor] operations.
-	SourceMonitorName  *string  `json:"monitor"`
-	SourceSignificance *float64 `json:"significance"`
-	SourceMaxValue     *int64   `json:"max-value"`
+	SourceMonitorName  *string  `json:"monitor,omitempty"`
+	SourceSignificance *float64 `json:"significance,omitempty"`
+	SourceMaxValue     *int64   `json:"max-value,omitempty"`
 
 	// API fields for [SystemMonitor] operations.
 	MetricType     *string       `json:"metric-type,omitempty"`

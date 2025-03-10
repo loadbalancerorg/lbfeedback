@@ -32,10 +32,11 @@ import (
 	"encoding/pem"
 	"errors"
 	"math/big"
+	"net"
 	"time"
 )
 
-func GetNewTLSCertificate(expiresInHours int) (cert *tls.Certificate, err error) {
+func GetNewTLSCertificate(ipList []net.IP, expiresInHours int) (cert *tls.Certificate, err error) {
 	// Generate a random serial 128-bit serial number for the cert.
 	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
 	serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
@@ -46,7 +47,7 @@ func GetNewTLSCertificate(expiresInHours int) (cert *tls.Certificate, err error)
 	// Build the certificate template with the required configuration.
 	template := x509.Certificate{
 		SerialNumber: serialNumber,
-		DNSNames:     []string{"localhost"},
+		IPAddresses:  ipList,
 		Subject: pkix.Name{
 			Organization: []string{"Loadbalancer.org Limited"},
 		},

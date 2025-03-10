@@ -82,8 +82,17 @@ func (agent *FeedbackAgent) Run() (exitStatus int) {
 
 // agentMain executes the agent, returning an exit status.
 func (agent *FeedbackAgent) agentMain() (exitStatus int) {
-	// Generate a new TLS certificate prior to trying to load any config.
-	err := agent.GenerateTLSCertificate()
+	// Try to load a configuration from a config file, or else set up
+	// the agent defaults.
+	err := agent.LoadOrCreateConfig()
+	if err != nil {
+		logrus.Error("Configuration of Feedback Agent services failed.")
+		exitStatus = ExitStatusError
+		return
+	}
+	/**
+	// Generate a new TLS certificate based on the new config.
+	err = agent.GenerateSelfSignedTLSCert()
 	if err != nil {
 		logrus.Error("TLS initialisation failed: " + err.Error())
 		exitStatus = ExitStatusError
@@ -91,14 +100,7 @@ func (agent *FeedbackAgent) agentMain() (exitStatus int) {
 	} else {
 		logrus.Info("Successfully generated a new TLS certificate.")
 	}
-	// Try to load a configuration from a config file, or else set up
-	// the agent defaults.
-	err = agent.LoadOrCreateConfig()
-	if err != nil {
-		logrus.Error("Configuration of Feedback Agent services failed.")
-		exitStatus = ExitStatusError
-		return
-	}
+	**/
 	// Set up file logging for this agent.
 	err = agent.InitialiseFileLogging(agent.LogDir)
 	if err != nil {
@@ -203,7 +205,7 @@ func (agent *FeedbackAgent) StartAllServices() (err error) {
 	// before any other responders. This is so that if there is a port
 	// collision in the JSON config, it is the other service that fails.
 	responderStarted := false
-	api, _ := agent.GetResponderByName("api")
+	api, _ := agent.GetResponderByName(ResponderNameAPI)
 	if api != nil {
 		err = api.Start()
 		if err != nil {
@@ -552,7 +554,7 @@ func (agent *FeedbackAgent) SetDefaultServiceConfig() (err error) {
 		return
 	}
 	apiResponder := FeedbackResponder{
-		ResponderName:   "api",
+		ResponderName:   ResponderNameAPI,
 		ProtocolName:    ProtocolSecureAPI,
 		ListenIPAddress: "127.0.0.1",
 		ListenPort:      "3334",
@@ -725,11 +727,6 @@ func (agent *FeedbackAgent) AddResponder(name string,
 		return
 	}
 	agent.Responders[name] = responder
-	return
-}
-
-func (agent *FeedbackAgent) GenerateTLSCertificate() (err error) {
-	agent.TLSCertificate, err = GetNewTLSCertificate(TLSCertExpiryHours)
 	return
 }
 
