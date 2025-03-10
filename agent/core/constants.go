@@ -23,10 +23,13 @@
 package agent
 
 const (
-	VersionString       string = "5.3.5-beta"
+	VersionString       string = "5.3.6"
 	ProtocolHTTP        string = "http"
+	ProtocolHTTPS       string = "https"
 	ProtocolTCP         string = "tcp"
-	ProtocolAPI         string = "http-api"
+	ProtocolSecureAPI   string = "https-api"
+	ProtocolLegacyAPI   string = "http-api"
+	ResponderNameAPI    string = "api"
 	ApplicationName     string = "Loadbalancer.org Feedback Agent"
 	AppIdentifier       string = "lbfeedback"
 	ServiceStateStopped int    = 1
@@ -35,8 +38,10 @@ const (
 	LogFileName         string = "agent.log"
 	ConfigFileName      string = "agent-config.json"
 	LocalPathMode       bool   = false
-	CopyrightYear       string = "2024"
+	CopyrightYear       string = "2025"
 	PanicDebug          bool   = false
+	ForceAPISecure      bool   = true
+	TLSCertExpiryHours  int    = 48
 )
 
 var ShellBanner string = `

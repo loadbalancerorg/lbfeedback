@@ -24,6 +24,7 @@ package agent
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -36,7 +37,7 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// Delivers the client CLI personality of the Feedback Agent.
+// RunClientCLI delivers the client CLI personality of the Feedback Agent.
 func RunClientCLI() (status int) {
 	// Print the CLI masthead.
 	fmt.Println(ShellBanner)
@@ -48,8 +49,10 @@ func RunClientCLI() (status int) {
 	if argc < 2 {
 		fmt.Println("Error: No command specified; terminating.")
 		PlatformPrintRunInstructions()
-		fmt.Println("For a brief summary of CLI control and configuration syntax, \n" +
-			"  use the 'help' command.")
+		fmt.Println(
+			"For a brief summary of CLI control and configuration syntax, \n" +
+				"  use the 'help' command.",
+		)
 		status = ExitStatusError
 		return
 	}
@@ -77,9 +80,9 @@ func RunClientCLI() (status int) {
 			}
 		}
 	}
-	responseObject := &APIResponse{}
-	responseObject, _, err := CLIHandleAgentAction(actionName,
-		actionType, actionArgs)
+	// Handle the specified action.
+	responseObject, _, err := CLIHandleAgentAction(actionName, actionType, actionArgs)
+	// Print any errors that occur.
 	if err != nil {
 		println("Error: " + err.Error() + ".")
 		status = ExitStatusError
@@ -92,16 +95,20 @@ func RunClientCLI() (status int) {
 		if err != nil {
 			println("Error: Failed to format response.")
 		} else {
-			println("JSON reply from the Feedback Agent:\n" +
-				string(remarshal))
+			println(
+				"JSON reply from the Feedback Agent:\n" +
+					string(remarshal),
+			)
 			if responseObject.Message != "" {
 				println("\n" + responseObject.Message)
 			}
 		}
 	}
-	resultMsg := "was successful"
+	resultMsg := ""
 	if responseObject == nil || !responseObject.Success {
 		resultMsg = "could not be completed"
+	} else {
+		resultMsg = "was successful"
 	}
 	println("The operation " + resultMsg + ".")
 	return
@@ -110,11 +117,10 @@ func RunClientCLI() (status int) {
 func CLIHandleAgentAction(actionName string, actionType string, argv []string) (
 	responseObject *APIResponse, responseJSON string, err error) {
 	// Define the set of flags available for all actions to
-	// process from the CLI. Note that it is the API's responsibility
-	// to validate that the correct parameters have been supplied.
+	// process from the CLI. Note that it is the responsibility of
+	// the API to validate that the correct parameters have been supplied.
 	apiArgs := flag.NewFlagSet("", flag.ContinueOnError)
 	apiArgs.Usage = func() {}
-	//apiArgs.
 	argType := apiArgs.String("type", "", "")
 	argTargetName := apiArgs.String("name", "", "")
 	argCommandList := apiArgs.String("command-list", "", "")
@@ -228,20 +234,35 @@ func CLIHandleAgentAction(actionName string, actionType string, argv []string) (
 	}
 	// Set the API key in the new request and build the URL.
 	request.APIKey = key
-	apiURL := "http://" + ip + ":" + port
+	apiURL := "https://" + ip + ":" + port
 	// Marshal the request into JSON to send to the agent API.
 	reqBodyJSON, err := json.MarshalIndent(request, "", "    ")
 	if err != nil {
 		return
 	}
+	// Create a custom transport with the certificate validation
+	// checking disabled. Really, we should at some point implement
+	// a method for setting a custom CA which is shared between the
+	// agent and the client, but this will have to suffice for now.
+	customTransport := http.DefaultTransport.(*http.Transport).Clone()
+	customTransport.TLSClientConfig = &tls.Config{
+		InsecureSkipVerify: true,
+	}
+	client := &http.Client{Transport: customTransport}
 	// Send the marshalled JSON to the API via HTTP.
-	httpResponse, err := http.Post(apiURL, "application/json",
-		bytes.NewBuffer(reqBodyJSON))
+	httpResponse, err := client.Post(
+		apiURL,
+		"application/json",
+		bytes.NewBuffer(reqBodyJSON),
+	)
+	// Handle any resulting errors.
 	if err != nil {
-		err = errors.New(err.Error() + "\nThe CLI Client " +
-			"failed to establish an HTTP connection to the Agent." +
-			"\nPlease check that the Agent is running and able to " +
-			"accept API requests")
+		err = errors.New(
+			err.Error() + "\nThe CLI Client " +
+				"failed to establish an HTTP connection to the Agent." +
+				"\nPlease check that the Agent is running and able to " +
+				"accept API requests",
+		)
 		return
 	}
 	// Read the contents of the response.
@@ -266,15 +287,16 @@ func UnmarshalAPIResponse(responseJSON string) (response *APIResponse, err error
 }
 
 // Attempts to load the API access details from the JSON config.
-func LoadAPIConfigFromFile(dir string, file string) (ip string, port string,
-	key string, err error) {
+func LoadAPIConfigFromFile(dir string, file string) (ip string, port string, key string, err error) {
 	// Try to load a config from the location.
 	agentConfig := FeedbackAgent{}
 	agentConfig.InitialiseServiceMaps()
 	_, err = agentConfig.LoadAgentConfig(dir, file)
 	if err != nil {
-		err = errors.New("unable to load agent config for API credentials:\n" +
-			err.Error())
+		err = errors.New(
+			"unable to load agent config for API credentials:\n" +
+				err.Error(),
+		)
 		return
 	}
 	api, err := agentConfig.GetResponderByName("api")

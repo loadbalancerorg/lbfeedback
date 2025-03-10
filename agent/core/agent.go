@@ -23,38 +23,40 @@
 package agent
 
 import (
-	"crypto/rand"
-	"encoding/hex"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/sirupsen/logrus"
 	"io"
 	"os"
 	"path"
 	"strings"
-
-	"github.com/sirupsen/logrus"
 )
 
-// The [FeedbackAgent] represents the main parent service which runs a configured
+// FeedbackAgent represents the main parent service which runs a configured
 // set of [SystemMonitor] and [FeedbackResponder] objects, and provides the
 // general utility functions for the project.
 type FeedbackAgent struct {
+	// Agent configuration fields
 	LogDir         string                        `json:"log-dir"`
 	APIKey         string                        `json:"api-key"`
 	Monitors       map[string]*SystemMonitor     `json:"monitors"`
 	Responders     map[string]*FeedbackResponder `json:"responders"`
-	UseLocalPath   bool                          `json:"-"`
-	ConfigDir      string                        `json:"-"`
-	isRunning      bool                          `json:"-"`
-	isStarting     bool                          `json:"-"`
-	systemSignals  chan os.Signal                `json:"-"`
-	restartSignal  os.Signal                     `json:"-"`
-	quitSignal     os.Signal                     `json:"-"`
-	unsavedChanges bool                          `json:"-"`
+	TLSCertificate *tls.Certificate              `json:"-"`
+
+	// State parameters for the agent application
+	useLocalPath   bool
+	configDir      string
+	isRunning      bool
+	isStarting     bool
+	systemSignals  chan os.Signal
+	restartSignal  os.Signal
+	quitSignal     os.Signal
+	unsavedChanges bool
 }
 
-// Creates a new [FeedbackAgent] service and runs it.
+// LaunchAgentService creates a new [FeedbackAgent] service and runs it.
 func LaunchAgentService() (exitStatus int) {
 	// Print the CLI masthead.
 	fmt.Println(ShellBanner)
@@ -65,20 +67,21 @@ func LaunchAgentService() (exitStatus int) {
 	return
 }
 
-// The "main" method for the agent service.
+// Run initialises the agent parameters and runs its main function.
 func (agent *FeedbackAgent) Run() (exitStatus int) {
 	agent.isStarting = true
-	agent.UseLocalPath = LocalPathMode
+	agent.useLocalPath = LocalPathMode
 	agent.InitialiseLogger()
 	agent.PlatformConfigureSignals()
 	agent.InitialisePaths()
 	logrus.Info("*** [Started] Loadbalancer.org Feedback Agent v" + VersionString)
-	exitStatus = agent.AgentMain()
+	exitStatus = agent.agentMain()
 	logrus.Info("*** [Stopped] The Feedback Agent has terminated.")
 	return
 }
 
-func (agent *FeedbackAgent) AgentMain() (exitStatus int) {
+// agentMain executes the agent, returning an exit status.
+func (agent *FeedbackAgent) agentMain() (exitStatus int) {
 	// Try to load a configuration from a config file, or else set up
 	// the agent defaults.
 	err := agent.LoadOrCreateConfig()
@@ -87,6 +90,17 @@ func (agent *FeedbackAgent) AgentMain() (exitStatus int) {
 		exitStatus = ExitStatusError
 		return
 	}
+	/**
+	// Generate a new TLS certificate based on the new config.
+	err = agent.GenerateSelfSignedTLSCert()
+	if err != nil {
+		logrus.Error("TLS initialisation failed: " + err.Error())
+		exitStatus = ExitStatusError
+		return
+	} else {
+		logrus.Info("Successfully generated a new TLS certificate.")
+	}
+	**/
 	// Set up file logging for this agent.
 	err = agent.InitialiseFileLogging(agent.LogDir)
 	if err != nil {
@@ -97,8 +111,10 @@ func (agent *FeedbackAgent) AgentMain() (exitStatus int) {
 	agent.isStarting = false
 	if err != nil {
 		// We weren't able to successfully run the agent.
-		logrus.Fatal("The Feedback Agent failed to launch due to an error. " +
-			"Please review the log output.")
+		logrus.Fatal(
+			"The Feedback Agent failed to launch due to an error. " +
+				"Please review the log output.",
+		)
 		exitStatus = ExitStatusError
 		return
 	}
@@ -113,36 +129,41 @@ func (agent *FeedbackAgent) AgentMain() (exitStatus int) {
 
 // Initialises the system paths for this [FeedbackAgent].
 func (agent *FeedbackAgent) InitialisePaths() {
-	if agent.UseLocalPath {
+	if agent.useLocalPath {
 		localDir, err := os.Getwd()
 		if err == nil {
-			agent.ConfigDir = localDir
+			agent.configDir = localDir
 			agent.LogDir = localDir
-			logrus.Info("Local directory config and logs enabled to `" +
-				localDir + "`.")
+			logrus.Info(
+				"Local directory config and logs enabled to `" +
+					localDir + "`.",
+			)
 		} else {
-			logrus.Error("Failed to get local directory for config and logs; " +
-				"keeping system global paths.")
-			agent.UseLocalPath = false
+			logrus.Error(
+				"Failed to get local directory for config and logs; " +
+					"keeping system global paths.",
+			)
+			agent.useLocalPath = false
 		}
 	} else {
 		agent.SetDefaultPaths()
 	}
 }
 
-// Waits until a signal is received from the system based on what is registered
-// for the platform file. In the case of "platform_posix" this will be SIGTERM,
-// SIGINT, etc.
+// EventHandleLoop blocks until a signal is received from the system based on
+// what is registered  for the platform file. In the case of "platform_posix"
+// this will be SIGTERM, SIGINT, etc.
 func (agent *FeedbackAgent) EventHandleLoop() {
-	isRunning := true
-	for isRunning {
+	for {
 		// Wait for a signal to occur, and block this goroutine
 		// until then, as there is nothing for us to do.
 		signal := <-agent.systemSignals
 		if signal == agent.restartSignal {
-			agent.RestartAllServices()
+			err := agent.RestartAllServices()
+			if err != nil {
+				break
+			}
 		} else {
-			isRunning = false
 			break
 		}
 	}
@@ -172,8 +193,10 @@ func (agent *FeedbackAgent) StartAllServices() (err error) {
 	for _, monitor := range agent.Monitors {
 		err = monitor.Start()
 		if err != nil {
-			logrus.Error("Error initialising monitor '" +
-				monitor.Name + "': " + err.Error())
+			logrus.Error(
+				"Error initialising monitor '" +
+					monitor.Name + "': " + err.Error(),
+			)
 			return
 		}
 	}
@@ -182,12 +205,14 @@ func (agent *FeedbackAgent) StartAllServices() (err error) {
 	// before any other responders. This is so that if there is a port
 	// collision in the JSON config, it is the other service that fails.
 	responderStarted := false
-	api, _ := agent.GetResponderByName("api")
+	api, _ := agent.GetResponderByName(ResponderNameAPI)
 	if api != nil {
 		err = api.Start()
 		if err != nil {
-			logrus.Error("Error initialising API responder: " +
-				err.Error())
+			logrus.Error(
+				"Error initialising API responder: " +
+					err.Error(),
+			)
 		} else {
 			responderStarted = true
 		}
@@ -196,8 +221,10 @@ func (agent *FeedbackAgent) StartAllServices() (err error) {
 		if !responder.IsRunning() {
 			err = responder.Start()
 			if err != nil {
-				logrus.Error("Error initialising responder '" +
-					responder.ResponderName + "': " + err.Error())
+				logrus.Error(
+					"Error initialising responder '" +
+						responder.ResponderName + "': " + err.Error(),
+				)
 			} else {
 				responderStarted = true
 			}
@@ -249,8 +276,7 @@ func (agent *FeedbackAgent) RestartAllServices() (err error) {
 }
 
 // Gets a [FeedbackResponder] by name from the map.
-func (agent *FeedbackAgent) GetResponderByName(name string) (
-	res *FeedbackResponder, err error) {
+func (agent *FeedbackAgent) GetResponderByName(name string) (res *FeedbackResponder, err error) {
 	// Try to get a pointer to the responder object, if it exists.
 	res, exists := agent.Responders[name]
 	if !exists || res == nil {
@@ -342,10 +368,10 @@ func (agent *FeedbackAgent) LoadOrCreateConfig() (err error) {
 	agent.InitialiseServiceMaps()
 	configLoaded := false
 	createFile := false
-	fullPath := path.Join(agent.ConfigDir, ConfigFileName)
+	fullPath := path.Join(agent.configDir, ConfigFileName)
 	// First, try to load the file if it exists.
-	if FileExists(agent.ConfigDir, ConfigFileName) {
-		configLoaded, err = agent.LoadAgentConfig(agent.ConfigDir, ConfigFileName)
+	if FileExists(agent.configDir, ConfigFileName) {
+		configLoaded, err = agent.LoadAgentConfig(agent.configDir, ConfigFileName)
 		if configLoaded {
 			logrus.Info("Configuration loaded successfully from file: " + fullPath)
 			return
@@ -420,7 +446,7 @@ func (agent *FeedbackAgent) LoadAgentConfig(dirPath string, fileName string) (
 
 // Saves the agent configuration to the default system paths.
 func (agent *FeedbackAgent) SaveAgentConfigToPaths() (success bool, err error) {
-	success, err = agent.SaveAgentConfig(agent.ConfigDir, ConfigFileName)
+	success, err = agent.SaveAgentConfig(agent.configDir, ConfigFileName)
 	return
 }
 
@@ -441,14 +467,18 @@ func (agent *FeedbackAgent) SaveAgentConfig(dirPath string, fileName string) (
 	if err != nil {
 		err = CreateDirectoryIfMissing(dirPath)
 		if err != nil {
-			err = errors.New("Failed to open directory, and could " +
-				"not create it: " + dirPath)
+			err = errors.New(
+				"Failed to open directory, and could " +
+					"not create it: " + dirPath,
+			)
 			return
 		}
 		file, err = os.Create(fullPath)
 		if err != nil {
-			err = errors.New("Failed to open file, and could " +
-				"not create it: " + fullPath)
+			err = errors.New(
+				"Failed to open file, and could " +
+					"not create it: " + fullPath,
+			)
 			return
 		} else {
 			logrus.Info("File not found, created: " + fullPath)
@@ -457,16 +487,20 @@ func (agent *FeedbackAgent) SaveAgentConfig(dirPath string, fileName string) (
 	// Write the JSON config to the new file.
 	_, err = file.Write(jsonOutput)
 	if err != nil {
-		err = errors.New("Failed to save agent configuration: " +
-			err.Error())
+		err = errors.New(
+			"Failed to save agent configuration: " +
+				err.Error(),
+		)
 		return
 	}
 	success = true
 	agent.unsavedChanges = false
 	err = file.Close()
 	if err != nil {
-		err = errors.New("Failed to close config file: " +
-			err.Error())
+		err = errors.New(
+			"Failed to close config file: " +
+				err.Error(),
+		)
 	}
 	return
 }
@@ -485,11 +519,12 @@ func CreateDirectoryIfMissing(dir string) (err error) {
 }
 
 // Adds a monitor service to this [FeedbackAgent].
-func (agent *FeedbackAgent) AddMonitor(name string, metric string,
-	interval int, params MetricParams, model *StatisticsModel) (
-	err error) {
-	mon, err := NewSystemMonitor(name, metric,
-		interval, params, model, agent.ConfigDir)
+func (agent *FeedbackAgent) AddMonitor(name string, metric string, interval int, params MetricParams,
+	model *StatisticsModel) (err error) {
+	mon, err := NewSystemMonitor(
+		name, metric,
+		interval, params, model, agent.configDir,
+	)
 	if err != nil {
 		return
 	}
@@ -502,7 +537,7 @@ func (agent *FeedbackAgent) AddMonitor(name string, metric string,
 
 // Sets the default paths for this [FeedbackAgent]
 func (agent *FeedbackAgent) SetDefaultPaths() {
-	agent.ConfigDir = DefaultConfigDir
+	agent.configDir = DefaultConfigDir
 	agent.LogDir = DefaultLogDir
 }
 
@@ -510,15 +545,17 @@ func (agent *FeedbackAgent) SetDefaultPaths() {
 // CPU monitor and one HTTP responder, connected together.
 func (agent *FeedbackAgent) SetDefaultServiceConfig() (err error) {
 	agent.InitialiseServiceMaps()
-	err = agent.AddMonitor("cpu", MetricTypeCPU,
-		CPUMetricMinInterval, nil, nil)
+	err = agent.AddMonitor(
+		"cpu", MetricTypeCPU,
+		CPUMetricMinInterval, nil, nil,
+	)
 	if err != nil {
 		logrus.Error("Error: " + err.Error())
 		return
 	}
 	apiResponder := FeedbackResponder{
-		ResponderName:   "api",
-		ProtocolName:    ProtocolAPI,
+		ResponderName:   ResponderNameAPI,
+		ProtocolName:    ProtocolSecureAPI,
 		ListenIPAddress: "127.0.0.1",
 		ListenPort:      "3334",
 		FeedbackSources: nil,
@@ -549,16 +586,6 @@ func (agent *FeedbackAgent) SetDefaultServiceConfig() (err error) {
 		return
 	}
 	agent.APIKey = RandomHexBytes(16)
-	return
-}
-
-// Generates a random hex string for a specified number of bytes.
-func RandomHexBytes(n int) (str string) {
-	bytes := make([]byte, n)
-	_, err := rand.Read(bytes)
-	if err == nil {
-		str = hex.EncodeToString(bytes)
-	}
 	return
 }
 
@@ -638,11 +665,13 @@ func (agent *FeedbackAgent) configureFromObject(parsed *FeedbackAgent) (err erro
 func (agent *FeedbackAgent) AddMonitorObject(monitor *SystemMonitor) (err error) {
 	_, nameExists := agent.Monitors[monitor.Name]
 	if nameExists {
-		err = errors.New("cannot create monitor '" + monitor.Name +
-			"': name already exists")
+		err = errors.New(
+			"cannot create monitor '" + monitor.Name +
+				"': name already exists",
+		)
 		return
 	}
-	monitor.FilePath = agent.ConfigDir
+	monitor.FilePath = agent.configDir
 	err = monitor.Initialise()
 	if err != nil {
 		return
@@ -655,8 +684,10 @@ func (agent *FeedbackAgent) AddResponderObject(responder *FeedbackResponder) (er
 	name := responder.ResponderName
 	_, nameExists := agent.Responders[name]
 	if nameExists {
-		err = errors.New("cannot create responder '" + name +
-			"': name already exists")
+		err = errors.New(
+			"cannot create responder '" + name +
+				"': name already exists",
+		)
 		return
 	}
 	responder.ParentAgent = agent
@@ -676,16 +707,23 @@ func (agent *FeedbackAgent) AddResponder(name string,
 	hapThreshold int) (err error) {
 	_, nameExists := agent.Responders[name]
 	if nameExists {
-		err = errors.New("cannot create responder '" + name +
-			"': name already exists")
+		err = errors.New(
+			"cannot create responder '" + name +
+				"': name already exists",
+		)
 		return
 	}
-	var responder *FeedbackResponder
-	responder, err = NewResponder(name, sources, protocol,
-		ip, port, hapCommands, enableThreshold, hapThreshold, agent)
+	responder, err := NewResponder(
+		name, sources, protocol,
+		ip, port, hapCommands,
+		enableThreshold, hapThreshold,
+		agent,
+	)
 	if err != nil {
-		err = errors.New("cannot create responder '" + name +
-			"': " + err.Error())
+		err = errors.New(
+			"cannot create responder '" + name +
+				"': " + err.Error(),
+		)
 		return
 	}
 	agent.Responders[name] = responder
@@ -696,11 +734,6 @@ func (agent *FeedbackAgent) AddResponder(name string,
 func (agent *FeedbackAgent) InitialiseServiceMaps() {
 	agent.Monitors = make(map[string]*SystemMonitor)
 	agent.Responders = make(map[string]*FeedbackResponder)
-}
-
-func RemoveExtraSpaces(str string) (result string) {
-	result = strings.Join(strings.Fields(str), " ")
-	return
 }
 
 // -------------------------------------------------------------------
