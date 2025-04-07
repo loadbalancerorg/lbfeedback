@@ -51,8 +51,7 @@ var ShellBanner string = `
 
 This program comes with ABSOLUTELY NO WARRANTY. This is free software, and 
 you are welcome to redistribute it under certain conditions. For further
-information, please read the LICENSE file distributed with this program.
-`
+information, please read the LICENSE file distributed with this program.`
 
 var HelpText string = `SYNTAX:
   lbfeedback [action] [type] [parameters]
