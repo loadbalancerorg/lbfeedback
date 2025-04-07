@@ -23,7 +23,6 @@
 package agent
 
 import (
-	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -39,11 +38,10 @@ import (
 // general utility functions for the project.
 type FeedbackAgent struct {
 	// Agent configuration fields
-	LogDir         string                        `json:"log-dir"`
-	APIKey         string                        `json:"api-key"`
-	Monitors       map[string]*SystemMonitor     `json:"monitors"`
-	Responders     map[string]*FeedbackResponder `json:"responders"`
-	TLSCertificate *tls.Certificate              `json:"-"`
+	LogDir     string                        `json:"log-dir"`
+	APIKey     string                        `json:"api-key"`
+	Monitors   map[string]*SystemMonitor     `json:"monitors"`
+	Responders map[string]*FeedbackResponder `json:"responders"`
 
 	// State parameters for the agent application
 	useLocalPath   bool
@@ -90,17 +88,6 @@ func (agent *FeedbackAgent) agentMain() (exitStatus int) {
 		exitStatus = ExitStatusError
 		return
 	}
-	/**
-	// Generate a new TLS certificate based on the new config.
-	err = agent.GenerateSelfSignedTLSCert()
-	if err != nil {
-		logrus.Error("TLS initialisation failed: " + err.Error())
-		exitStatus = ExitStatusError
-		return
-	} else {
-		logrus.Info("Successfully generated a new TLS certificate.")
-	}
-	**/
 	// Set up file logging for this agent.
 	err = agent.InitialiseFileLogging(agent.LogDir)
 	if err != nil {
@@ -122,7 +109,12 @@ func (agent *FeedbackAgent) agentMain() (exitStatus int) {
 	logrus.Info("Startup complete; the Feedback Agent has launched.")
 	agent.EventHandleLoop()
 	// If we're here, we've quit.
-	agent.StopAllServices()
+	err = agent.StopAllServices()
+	if err != nil {
+		logrus.Error("Failed to stop all services: " + err.Error() + ".")
+		exitStatus = ExitStatusError
+		return
+	}
 	exitStatus = ExitStatusNormal
 	return
 }
@@ -169,6 +161,24 @@ func (agent *FeedbackAgent) EventHandleLoop() {
 	}
 }
 
+func (agent *FeedbackAgent) EventHandleLoopNew() {
+	for {
+		select {
+		case msg := <-agent.systemSignals:
+			if msg == agent.restartSignal {
+				err := agent.RestartAllServices()
+				if err != nil {
+					break
+				}
+			} else {
+				break
+			}
+		default:
+			// Delay timer goes here
+		}
+	}
+}
+
 // Sends the agent event loop a quit signal.
 func (agent *FeedbackAgent) SelfSignalQuit() {
 	agent.systemSignals <- agent.quitSignal
@@ -177,12 +187,12 @@ func (agent *FeedbackAgent) SelfSignalQuit() {
 // Sets up logrus to show the timestamp in the correct format.
 func (agent *FeedbackAgent) InitialiseLogger() {
 	logrus.SetLevel(logrus.DebugLevel)
-	fmt := &logrus.TextFormatter{
+	formatter := &logrus.TextFormatter{
 		TimestampFormat: "2006-01-02 15:04:05",
 		FullTimestamp:   true,
 		ForceColors:     false,
 	}
-	logrus.SetFormatter(fmt)
+	logrus.SetFormatter(formatter)
 }
 
 // Loads the JSON configuration file (or creates a new default file,

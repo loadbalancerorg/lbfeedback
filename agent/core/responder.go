@@ -89,11 +89,12 @@ type FeedbackResponder struct {
 	forceCommandState bool
 }
 
-// Defines a source mapping for a [FeedbackResponder] to a
+// FeedbackSource defines a source mapping for a FeedbackResponder to a
 // [SystemMonitor] with a specified significance and maximum value.
 type FeedbackSource struct {
 	Significance         float64        `json:"significance"`
 	MaxValue             int64          `json:"max-value"`
+	Threshold            int            `json:"threshold"`
 	Monitor              *SystemMonitor `json:"-"`
 	RelativeSignificance float64        `json:"-"`
 }
@@ -109,7 +110,6 @@ const (
 	// included for both online and offline states.
 
 	HAPEnumNone    = 0x000
-	HAPMaskState   = 0xF00
 	HAPMaskCommand = 0x0FF
 	HAPMaskAll     = 0xFFF
 	HAPOnlineFlag  = 0x100
@@ -262,11 +262,11 @@ func (fbr *FeedbackResponder) Initialise() (err error) {
 	if err != nil {
 		return
 	}
-	fbr.ConfigureCommands(commands, true, false)
+	err = fbr.ConfigureCommands(commands, true, false)
 	if err != nil {
 		return
 	}
-	fbr.ConfigureInterval(interval)
+	err = fbr.ConfigureInterval(interval)
 	if err != nil {
 		return
 	}
@@ -339,10 +339,8 @@ func (fbr *FeedbackResponder) initialiseSources() (err error) {
 		// Log details of this source so the user can see what's configured
 		// when the agent is configured.
 	}
-	logrus.Info(
-		fbr.getLogHead() + ": calculating relative significances, " +
-			"total " + fmt.Sprintf("%.2f", totalSignificance) + ".",
-	)
+	logrus.Info(fbr.getLogHead() + ": calculating relative significances, " +
+		"total " + fmt.Sprintf("%.2f", totalSignificance) + ".")
 
 	// Set the scaled significance for each source monitor, i.e. the fraction
 	// of the total significance values specified that each monitor represents.
@@ -359,8 +357,7 @@ func (fbr *FeedbackResponder) initialiseSources() (err error) {
 	return
 }
 
-func (fbr *FeedbackResponder) AddFeedbackSource(
-	name string,
+func (fbr *FeedbackResponder) AddFeedbackSource(name string,
 	significance *float64, maxValue *int64) (err error) {
 	fbr.mutex.Lock()
 	defer fbr.mutex.Unlock()
@@ -389,19 +386,17 @@ func (fbr *FeedbackResponder) AddFeedbackSource(
 		)
 		return
 	}
-	if significance == nil {
-		*significance = 1.0
+	sigValue := 1.0
+	if significance != nil {
+		sigValue = *significance
 	}
-	var metricMax int64
+	metricMax := int64(mon.SysMetric.GetDefaultMax())
 	if maxValue != nil {
 		metricMax = *maxValue
-	} else {
-		metricMax = int64(mon.SysMetric.GetDefaultMax())
-
 	}
 	newSource := FeedbackSource{
 		Monitor:      mon,
-		Significance: *significance,
+		Significance: sigValue,
 		MaxValue:     metricMax,
 	}
 	fbr.FeedbackSources[name] = &newSource
@@ -507,7 +502,7 @@ func (fbr *FeedbackResponder) setHAPCommandMask(commands string,
 	}
 	// Mask off the enum flags (as we don't want these in the field)
 	changeMask &= HAPMaskCommand
-	// If setting these commands, OR the change mask into into the current
+	// If setting these commands, OR the change mask into the current
 	// command mask, otherwise AND NOT to unset them.
 	if replace {
 		fbr.configCommandMask = changeMask
@@ -741,47 +736,72 @@ func (fbr *FeedbackResponder) setInterval(interval int) {
 	}
 }
 
-// A corrected version of the algorithm mentioned on the Loadbalancer.org
-// blog for the older Feedback Agent, which calculates an availability
-// score against a maximum value specified for a given metric, adjusted
-// by a relative significance score (scaled proportion of the total
-// significance for all monitors attached to this responder).
-func (fbr *FeedbackResponder) AvailabilityScore() (score int) {
-	// Calculate the overall score across all monitors by scaling
+// GetOverallFeedbackScore provides a corrected version of the algorithm mentioned
+// on the Loadbalancer.org blog for the older Windows Feedback Agent, which
+// calculates an availability score against a maximum value specified for a
+// given metric, adjusted by a relative significance score (scaled proportion
+// of the total significance for all monitors attached to this responder).
+func (fbr *FeedbackResponder) GetOverallFeedbackScore() (availability int, withinThreshold bool) {
+	// Calculate the overall totalLoad across all monitors by scaling
 	// against their maximum value, and then their relative significance.
 	// Formula:
 	//       s = 100 - ((v_cur / v_max) * sig_rel * 100)
 	// where:
-	//       s = total availability score for this monitor
+	//       s = totalLoad availability score for this monitor
 	//       v_cur = current raw value returned by the stats model
 	//       v_max = maximum specified ceiling for the source
 	//       sig_rel = fraction of all significances set for this monitor
 	//
-	scoreTotal := 0.0
+	withinThreshold = true
+	totalLoad := 0
 	for _, source := range fbr.FeedbackSources {
 		// Skip any monitors with no significance.
 		if source.RelativeSignificance <= 0.0 {
 			continue
 		}
-		// Grab the current raw value from the stats model.
-		rawValue := source.Monitor.StatsModel.GetResult()
-		// Clamp the raw value at the maximum value set.
-		if rawValue > source.MaxValue {
-			rawValue = source.MaxValue
+		sourceLoad := getSourceLoad(source)
+		thresholdReached := fbr.thresholdCheck("source '"+source.Monitor.Name+"'",
+			int(source.Threshold), sourceLoad)
+		if thresholdReached {
+			withinThreshold = false
 		}
-		scaledValue := (float64(rawValue) /
-			float64(source.MaxValue)) *
-			source.RelativeSignificance
-		scoreTotal += scaledValue
+		totalLoad += int(float64(sourceLoad) * source.RelativeSignificance)
 	}
-	score = 100 - int(math.Round(scoreTotal*100))
-	// Constrain score within boundaries.
-	if score > 100 {
-		score = 100
-	} else if score < 0 {
-		score = 0
+	thresholdReached := fbr.thresholdCheck("overall", fbr.ThresholdScore, totalLoad)
+	if thresholdReached {
+		withinThreshold = false
+	}
+	availability = 100 - totalLoad
+	return
+}
+
+func getSourceLoad(source *FeedbackSource) (load int) {
+	// Grab the current raw value from the stats model.
+	rawValue := source.Monitor.StatsModel.GetResult()
+	// Clamp the raw value at the configured max value.
+	if rawValue > source.MaxValue {
+		rawValue = source.MaxValue
+	}
+	load = int(math.Round((float64(rawValue) /
+		float64(source.MaxValue)) * 100))
+	// Constrain total within boundaries.
+	if load > 100 {
+		load = 100
+	} else if load < 0 {
+		load = 0
 	}
 	return
+}
+
+func (fbr *FeedbackResponder) thresholdCheck(name string, threshold int, load int) bool {
+	if load >= threshold {
+		logrus.Info(fbr.getLogHead() + ": " + name + ": load (" +
+			strconv.Itoa(load) + "%) reached max (" +
+			strconv.Itoa(threshold) + "%)")
+		return true
+	} else {
+		return false
+	}
 }
 
 // Handler for generating a feedback string for this [FeedbackResponder].
@@ -791,9 +811,8 @@ func (fbr *FeedbackResponder) HandleFeedback() (feedback string) {
 	timestamp := time.Now()
 	fbr.mutex.Lock()
 	defer fbr.mutex.Unlock()
-	score := fbr.AvailabilityScore()
-	feedback = strconv.Itoa(score) + "%"
-	thresholdState := score >= fbr.ThresholdScore
+	availability, thresholdState := fbr.GetOverallFeedbackScore()
+	feedback = strconv.Itoa(availability) + "%"
 
 	// First, work out if we should change state based on the threshold.
 	// We do so if the threshold is enabled, the current threshold state
@@ -832,7 +851,7 @@ func (fbr *FeedbackResponder) HandleFeedback() (feedback string) {
 	return
 }
 
-// Gets a string response from this [FeedbackResponder], which will depend
+// GetResponse gets a string response from this FeedbackResponder, which will depend
 // on its configuration and what it is supposed to do.
 func (fbr *FeedbackResponder) GetResponse(request string) (response string, quitAfter bool) {
 	if !PanicDebug {
