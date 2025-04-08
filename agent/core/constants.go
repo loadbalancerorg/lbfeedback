@@ -94,7 +94,7 @@ PARAMETERS:
   -request-timeout    Request timeout (ms).
   -response-timeout   Response timeout (ms).
   -threshold-enabled  Enable HAProxy automatic command threshold (true/false).
-  -threshold-min      Minimum availability for an online state (percent).
+  -threshold-max      Maximum load for an online state (percent).
   -command-interval   Time interval to send HAProxy commands for (ms, 
                       default 10000).
   -monitor            Name identifier of a target Monitor.
@@ -116,7 +116,7 @@ EXAMPLES:
    lbfeedback get config
    lbfeedback add monitor -name ram -metric-type ram
    lbfeedback add source -name default -monitor ram
-   lbfeedback force offline -name default
+   lbfeedback force halt -name default
                       
 Please note that this is an extremely brief outline of the available
 CLI configuration commands for controlling the Feedback Agent. For

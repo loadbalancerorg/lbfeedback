@@ -132,7 +132,7 @@ func CLIHandleAgentAction(actionName string, actionType string, argv []string) (
 	argRequestTimeout := apiArgs.Int("request-timeout", 0, "")
 	argResponseTimeout := apiArgs.Int("response-timeout", 0, "")
 	argThresholdEnabled := apiArgs.String("threshold-enabled", "", "")
-	argScoreThreshold := apiArgs.Int("threshold-min", 0, "")
+	argScoreThreshold := apiArgs.Int("threshold-max", 0, "")
 	argCommandInterval := apiArgs.Int("command-interval", -1, "")
 
 	// Fields for [SystemMonitor] API requests.
