@@ -23,28 +23,42 @@
 package agent
 
 const (
-	VersionString       string = "5.3.6"
-	ProtocolHTTP        string = "http"
-	ProtocolHTTPS       string = "https"
-	ProtocolTCP         string = "tcp"
-	ProtocolSecureAPI   string = "https-api"
-	ProtocolLegacyAPI   string = "http-api"
-	ResponderNameAPI    string = "api"
-	ApplicationName     string = "Loadbalancer.org Feedback Agent"
-	AppIdentifier       string = "lbfeedback"
-	ServiceStateStopped int    = 1
-	ServiceStateRunning int    = 2
-	ServiceStateFailed  int    = 3
-	LogFileName         string = "agent.log"
-	ConfigFileName      string = "agent-config.json"
-	LocalPathMode       bool   = false
-	CopyrightYear       string = "2025"
-	PanicDebug          bool   = false
-	ForceAPISecure      bool   = true
-	TLSCertExpiryHours  int    = 48
+	// -- Version parameters.
+
+	VersionString   string = "5.3.6"
+	CopyrightYear   string = "2025"
+	ApplicationName string = "Loadbalancer.org Feedback Agent"
+	AppIdentifier   string = "lbfeedback"
+
+	// -- Service state constants.
+	// $$ TO DO: Replace this with an enum type.
+
+	ServiceStateStopped int = 1
+	ServiceStateRunning int = 2
+	ServiceStateFailed  int = 3
+
+	// -- Constants (used in JSON and internally) defining the names
+	// -- of protocols used by a responder.
+
+	ProtocolHTTP      string = "http"
+	ProtocolHTTPS     string = "https"
+	ProtocolTCP       string = "tcp"
+	ProtocolSecureAPI string = "https-api"
+	ProtocolLegacyAPI string = "http-api"
+	ResponderNameAPI  string = "api"
+
+	// -- Settings defined at build time in this binary.
+
+	LogFileName        string = "agent.log"
+	ConfigFileName     string = "agent-config.json"
+	LocalPathMode      bool   = false
+	PanicDebug         bool   = false
+	ForceAPISecure     bool   = true
+	TLSCertExpiryHours int    = 48
 )
 
-var ShellBanner string = `
+// ShellBanner provides the masthead printed at startup on the command line.
+var ShellBanner = `
      ▄ █           ` + ApplicationName + " v" + VersionString + `
      █ █ █▄▄       Copyright (C) ` + CopyrightYear + ` Loadbalancer.org Limited
      █ █ ▄ █       Licensed under the GNU General Public License v3
@@ -53,7 +67,9 @@ This program comes with ABSOLUTELY NO WARRANTY. This is free software, and
 you are welcome to redistribute it under certain conditions. For further
 information, please read the LICENSE file distributed with this program.`
 
-var HelpText string = `SYNTAX:
+// HelpText defines the output printed on the command line when help mode
+// is activated.
+var HelpText = `SYNTAX:
   lbfeedback [action] [type] [parameters]
 
 ACTIONS:

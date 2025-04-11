@@ -29,7 +29,7 @@ type APIRequest struct {
 	Type       string `json:"type,omitempty"`
 	TargetName string `json:"target-name,omitempty"`
 
-	// API fields for [FeedbackResponder] operations.
+	// API fields for FeedbackResponder operations.
 	ProtocolName     *string                     `json:"protocol,omitempty"`
 	ListenIPAddress  *string                     `json:"ip,omitempty"`
 	ListenPort       *string                     `json:"port,omitempty"`
@@ -41,12 +41,13 @@ type APIRequest struct {
 	ThresholdEnabled *bool                       `json:"threshold-enabled,omitempty"`
 	ThresholdScore   *int                        `json:"threshold-min,omitempty"`
 
-	// API fields for [SourceMonitor] operations.
+	// API fields for SourceMonitor operations.
 	SourceMonitorName  *string  `json:"monitor,omitempty"`
 	SourceSignificance *float64 `json:"significance,omitempty"`
 	SourceMaxValue     *int64   `json:"max-value,omitempty"`
+	SourceThreshold    *int64   `json:"threshold,omitempty"`
 
-	// API fields for [SystemMonitor] operations.
+	// API fields for SystemMonitor operations.
 	MetricType     *string       `json:"metric-type,omitempty"`
 	MetricInterval *int          `json:"interval-ms,omitempty"`
 	MetricParams   *MetricParams `json:"metric-config,omitempty"`

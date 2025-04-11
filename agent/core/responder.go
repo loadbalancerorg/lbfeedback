@@ -94,7 +94,7 @@ type FeedbackResponder struct {
 type FeedbackSource struct {
 	Significance         float64        `json:"significance"`
 	MaxValue             int64          `json:"max-value"`
-	Threshold            int            `json:"threshold"`
+	Threshold            int64          `json:"threshold"`
 	Monitor              *SystemMonitor `json:"-"`
 	RelativeSignificance float64        `json:"-"`
 }
@@ -331,6 +331,13 @@ func (fbr *FeedbackResponder) initialiseSources() (err error) {
 			)
 			return
 		}
+		if source.Threshold < 0 || source.Threshold > 100 {
+			err = errors.New(
+				"'" + key + "': threshold out of range: " +
+					"must be between 0 and 100",
+			)
+			return
+		}
 		source.Monitor = monitor
 		// Add this significance to the total so that we can calculate
 		// the fraction that each monitor represents of the total significance
@@ -358,7 +365,7 @@ func (fbr *FeedbackResponder) initialiseSources() (err error) {
 }
 
 func (fbr *FeedbackResponder) AddFeedbackSource(name string,
-	significance *float64, maxValue *int64) (err error) {
+	significance *float64, maxValue *int64, threshold *int64) (err error) {
 	fbr.mutex.Lock()
 	defer fbr.mutex.Unlock()
 	name = strings.TrimSpace(name)
@@ -394,19 +401,31 @@ func (fbr *FeedbackResponder) AddFeedbackSource(name string,
 	if maxValue != nil {
 		metricMax = *maxValue
 	}
+	thresholdValue := int64(100)
+	if threshold != nil {
+		thresholdValue = *threshold
+	}
 	newSource := FeedbackSource{
 		Monitor:      mon,
 		Significance: sigValue,
 		MaxValue:     metricMax,
+		Threshold:    thresholdValue,
 	}
 	fbr.FeedbackSources[name] = &newSource
 	fbr.mutex.Unlock()
+	// The initialiseSources() method of the responder also handles validation
+	// of the specified parameters.
 	err = fbr.initialiseSources()
+	if err != nil {
+		// Delete the source if it failed validation.
+		delete(fbr.FeedbackSources, name)
+	}
 	fbr.mutex.Lock()
 	return
 }
 
-func (fbr *FeedbackResponder) EditFeedbackSource(name string, significance *float64, maxValue *int64) (err error) {
+func (fbr *FeedbackResponder) EditFeedbackSource(name string, significance *float64,
+	maxValue *int64, threshold *int64) (err error) {
 	fbr.mutex.Lock()
 	defer fbr.mutex.Unlock()
 	source, exists := fbr.FeedbackSources[name]
@@ -418,29 +437,23 @@ func (fbr *FeedbackResponder) EditFeedbackSource(name string, significance *floa
 		)
 		return
 	}
+	unedited := *source
 	if significance != nil {
-		if *significance < 0.0 || *significance > 1.0 {
-			err = errors.New(
-				fbr.getLogHead() +
-					": significance out of range",
-			)
-			return
-		}
 		source.Significance = *significance
 	}
 	if maxValue != nil {
-		if *maxValue < 0 {
-			err = errors.New(
-				fbr.getLogHead() +
-					": max value out of range",
-			)
-			return
-		}
 		source.MaxValue = *maxValue
+	}
+	if threshold != nil {
+		source.Threshold = *threshold
 	}
 	fbr.FeedbackSources[name] = source
 	fbr.mutex.Unlock()
 	err = fbr.initialiseSources()
+	// If initialisation fails, revert the change
+	if err != nil {
+		fbr.FeedbackSources[name] = &unedited
+	}
 	fbr.mutex.Lock()
 	return
 }
@@ -714,10 +727,11 @@ func (fbr *FeedbackResponder) ConfigureThresholdValue(threshold int) (err error)
 	return
 }
 
-func (fbr *FeedbackResponder) ConfigureThresholdEnabled(enabled bool) {
+func (fbr *FeedbackResponder) ConfigureThresholdEnabled(enabled bool) (err error) {
 	fbr.mutex.Lock()
 	defer fbr.mutex.Unlock()
 	fbr.ThresholdEnabled = enabled
+	return
 }
 
 func (fbr *FeedbackResponder) setThreshold(threshold int) {
@@ -804,7 +818,7 @@ func (fbr *FeedbackResponder) thresholdCheck(name string, threshold int, load in
 	}
 }
 
-// Handler for generating a feedback string for this [FeedbackResponder].
+// HandleFeedback generates a feedback string for this FeedbackResponder.
 // It also changes the current online state as of the last query so that
 // a command is sent for a specified period of time from the first request.
 func (fbr *FeedbackResponder) HandleFeedback() (feedback string) {
@@ -831,7 +845,7 @@ func (fbr *FeedbackResponder) HandleFeedback() (feedback string) {
 	}
 
 	// Next, work out whether we send a command for the current state
-	// by checking whether it's expired yet, overriden if it's an offline
+	// by checking whether it's expired yet, overridden if it's an offline
 	// state and the interval is disabled for online states. Note that
 	// we have to repeat the logic tests here because the state may
 	// have changed above.

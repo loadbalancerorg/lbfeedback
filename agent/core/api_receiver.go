@@ -618,6 +618,7 @@ func (agent *FeedbackAgent) APIHandleMonitorRequest(request *APIRequest) (
 	}
 	switch request.Action {
 	case "edit":
+
 		err = agent.APIEditMonitor(request)
 	case "delete":
 		err = agent.APIDeleteMonitor(request)
@@ -646,10 +647,12 @@ func (agent *FeedbackAgent) APIHandleSourceRequest(request *APIRequest) (
 	switch request.Action {
 	case "add":
 		err = res.AddFeedbackSource(*request.SourceMonitorName,
-			request.SourceSignificance, request.SourceMaxValue)
+			request.SourceSignificance, request.SourceMaxValue,
+			request.SourceThreshold)
 	case "edit":
 		err = res.EditFeedbackSource(*request.SourceMonitorName,
-			request.SourceSignificance, request.SourceMaxValue)
+			request.SourceSignificance, request.SourceMaxValue,
+			request.SourceThreshold)
 	case "delete":
 		err = res.DeleteFeedbackSource(*request.SourceMonitorName)
 	default:
@@ -700,34 +703,44 @@ func (agent *FeedbackAgent) APIHandleSetOnlineState(name string,
 	return
 }
 
+// APIHandleSetThreshold processes an API request to set a value or state
+// for applying a threshold to the Feedback Agent output.
 func (agent *FeedbackAgent) APIHandleSetThreshold(request *APIRequest) (
 	err error) {
+	// Fetch the responder from the parent agent object.
 	res, err := agent.GetResponderByName(request.TargetName)
 	if err != nil {
 		return
 	}
-	changed := true
-	enableThreshold := false
-	if request.ThresholdScore != nil {
+	changed := false
+	// Process a change to the threshold score, if provided.
+	if request.ThresholdScore != nil && (*request.ThresholdScore != res.ThresholdScore) {
 		err = res.ConfigureThresholdValue(*request.ThresholdScore)
 		if err != nil {
 			return
 		}
-		// If a valid threshold has been set, enable by default
-		enableThreshold = true
+		// Enable the threshold by default if a valid value was specified. This
+		// will be handled in the next block.
+		*request.ThresholdEnabled = true
 		changed = true
 	}
-	if request.ThresholdEnabled != nil {
-		enableThreshold = *request.ThresholdEnabled
+	// Process a change to whether the threshold is enabled, if provided
+	// or triggered by the above code.
+	if request.ThresholdEnabled != nil && (*request.ThresholdEnabled != res.ThresholdEnabled) {
+		err = res.ConfigureThresholdEnabled(*request.ThresholdEnabled)
+		if err != nil {
+			return
+		}
 		changed = true
 	}
+	// If no change occurred but this was a request to change something
+	// about the threshold, then we raise an error. Otherwise, flag
+	// to the agent to resave the config file.
 	if !changed {
 		err = errors.New("no threshold parameters specified")
-		return
 	} else {
-		res.ConfigureThresholdEnabled(enableThreshold)
+		agent.unsavedChanges = true
 	}
-	agent.unsavedChanges = true
 	return
 }
 
@@ -763,7 +776,10 @@ func (agent *FeedbackAgent) APIHandleSetInterval(request *APIRequest) (
 		err = errors.New("invalid command interval specified (use 0 for disabled)")
 		return
 	}
-	res.ConfigureInterval(*request.CommandInterval)
+	err = res.ConfigureInterval(*request.CommandInterval)
+	if err != nil {
+		return
+	}
 	agent.unsavedChanges = true
 	return
 }

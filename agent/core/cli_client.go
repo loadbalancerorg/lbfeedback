@@ -131,14 +131,15 @@ func CLIHandleAgentAction(actionName string, actionType string, argv []string) (
 	argListenPort := apiArgs.String("port", "", "")
 	argRequestTimeout := apiArgs.Int("request-timeout", 0, "")
 	argResponseTimeout := apiArgs.Int("response-timeout", 0, "")
-	argThresholdEnabled := apiArgs.String("threshold-enabled", "", "")
-	argScoreThreshold := apiArgs.Int("threshold-max", 0, "")
+	argThresholdString := apiArgs.String("threshold-enabled", "", "")
+	argResponderThreshold := apiArgs.Int("threshold-max", 0, "")
 	argCommandInterval := apiArgs.Int("command-interval", -1, "")
 
-	// Fields for [SystemMonitor] API requests.
+	// Fields for monitor and source API requests.
 	argMonitorName := apiArgs.String("monitor", "", "")
 	argSourceSignificance := apiArgs.Float64("significance", 1.0, "")
 	argSourceMaxValue := apiArgs.Int64("max-value", -1, "")
+	argSourceThreshold := apiArgs.Int64("threshold", -1, "")
 	argMetricType := apiArgs.String("metric-type", "", "")
 
 	// Fields for [MetricParams] configuration. Note that all
@@ -149,7 +150,7 @@ func CLIHandleAgentAction(actionName string, actionType string, argv []string) (
 
 	// $$ TO DO: Define help for actions.
 	err = apiArgs.Parse(argv)
-	if err != nil && err != flag.ErrHelp {
+	if err != nil && !errors.Is(err, flag.ErrHelp) {
 		err = errors.New("one or more parameters were invalid; use the 'help' command for syntax")
 		return
 	}
@@ -160,19 +161,15 @@ func CLIHandleAgentAction(actionName string, actionType string, argv []string) (
 		actionType = *argType
 	}
 
-	// Unset command interval if invalid.
-	if argCommandInterval != nil && *argCommandInterval < 0 {
-		argCommandInterval = nil
-	}
+	// Process parameters where required.
+	argCommandInterval = PointerHandleIntValue(argCommandInterval)
+	argCommandList = PointerHandleStringValue(argCommandList)
+	argSourceMaxValue = PointerHandleInt64Value(argSourceMaxValue)
+	argSourceThreshold = PointerHandleInt64Value(argSourceThreshold)
 
-	if argCommandList != nil && strings.TrimSpace(*argCommandList) == "" {
-		argCommandList = nil
-	}
-
-	// Unset source max value if invalid.
-	if argSourceMaxValue != nil && *argSourceMaxValue < 0 {
-		argSourceMaxValue = nil
-	}
+	// This is a workaround from a bug with the go flags package where bool
+	// parameters were not always being correctly parsed.
+	argThresholdEnabled := PointerHandleBoolString(argThresholdString)
 
 	// Set fields into the new API request; the API will be responsible
 	// for determining the validity of options for a request.
@@ -186,12 +183,13 @@ func CLIHandleAgentAction(actionName string, actionType string, argv []string) (
 		RequestTimeout:     argRequestTimeout,
 		ResponseTimeout:    argResponseTimeout,
 		CommandList:        argCommandList,
-		ThresholdEnabled:   new(bool),
-		ThresholdScore:     argScoreThreshold,
+		ThresholdEnabled:   argThresholdEnabled,
+		ThresholdScore:     argResponderThreshold,
 		CommandInterval:    argCommandInterval,
 		SourceMonitorName:  argMonitorName,
 		SourceSignificance: argSourceSignificance,
 		SourceMaxValue:     argSourceMaxValue,
+		SourceThreshold:    argSourceThreshold,
 		MetricType:         argMetricType,
 		MetricInterval:     argCommandInterval,
 		MetricParams: &MetricParams{
@@ -201,24 +199,11 @@ func CLIHandleAgentAction(actionName string, actionType string, argv []string) (
 		},
 	}
 
-	// Set parameter for threshold operations
-	if argThresholdEnabled != nil {
-		thresholdString := strings.TrimSpace(*argThresholdEnabled)
-		if thresholdString == "true" {
-			*request.ThresholdEnabled = true
-		} else if thresholdString == "false" {
-			*request.ThresholdEnabled = false
-		} else {
-			request.ThresholdEnabled = nil
-		}
-	}
-
 	// Workaround for * being expanded into a glob in bash
 	if *request.ListenIPAddress == "any" {
 		asterisk := "*"
 		request.ListenIPAddress = &asterisk
 	}
-
 	// $ TO DO: Allow user to specify the API IP, port and key as flags,
 	// or alternatively the config dir and/or the config filename.
 	configDir := DefaultConfigDir
@@ -240,7 +225,8 @@ func CLIHandleAgentAction(actionName string, actionType string, argv []string) (
 	if err != nil {
 		return
 	}
-	// Create a custom transport with the certificate validation
+
+	// Create a custom transport object with certificate validation
 	// checking disabled. Really, we should at some point implement
 	// a method for setting a custom CA which is shared between the
 	// agent and the client, but this will have to suffice for now.
@@ -248,7 +234,9 @@ func CLIHandleAgentAction(actionName string, actionType string, argv []string) (
 	customTransport.TLSClientConfig = &tls.Config{
 		InsecureSkipVerify: true,
 	}
-	client := &http.Client{Transport: customTransport}
+	client := &http.Client{
+		Transport: customTransport,
+	}
 	// Send the marshalled JSON to the API via HTTP.
 	httpResponse, err := client.Post(
 		apiURL,
@@ -258,8 +246,8 @@ func CLIHandleAgentAction(actionName string, actionType string, argv []string) (
 	// Handle any resulting errors.
 	if err != nil {
 		err = errors.New(
-			err.Error() + "\nThe CLI Client " +
-				"failed to establish an HTTP connection to the Agent." +
+			err.Error() + "\nThe CLI Client failed to establish " +
+				"an HTTP connection to the Agent." +
 				"\nPlease check that the Agent is running and able to " +
 				"accept API requests",
 		)
@@ -272,9 +260,6 @@ func CLIHandleAgentAction(actionName string, actionType string, argv []string) (
 	}
 	responseJSON = string(responseBytes)
 	responseObject, err = UnmarshalAPIResponse(responseJSON)
-	if err != nil {
-		return
-	}
 	return
 }
 
