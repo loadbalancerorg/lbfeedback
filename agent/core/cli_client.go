@@ -41,7 +41,7 @@ import (
 func RunClientCLI() (status int) {
 	// Print the CLI masthead.
 	fmt.Println(ShellBanner)
-	// Suppress any log messages from logrus where we are calling
+	// Suppress any log message output where we are calling
 	// agent functions for loading the configuration.
 	logrus.SetOutput(io.Discard)
 	// Check minimum parameters have been provided.
@@ -91,13 +91,13 @@ func RunClientCLI() (status int) {
 		// Remove fields that we want to hide from the object
 		responseObject.Request = nil
 		responseObject.ID = nil
-		remarshal, err := json.MarshalIndent(responseObject, "", "    ")
+		reformatted, err := json.MarshalIndent(responseObject, "", "    ")
 		if err != nil {
 			println("Error: Failed to format response.")
 		} else {
 			println(
 				"JSON reply from the Feedback Agent:\n" +
-					string(remarshal),
+					string(reformatted),
 			)
 			if responseObject.Message != "" {
 				println("\n" + responseObject.Message)
@@ -151,7 +151,8 @@ func CLIHandleAgentAction(actionName string, actionType string, argv []string) (
 	// $$ TO DO: Define help for actions.
 	err = apiArgs.Parse(argv)
 	if err != nil && !errors.Is(err, flag.ErrHelp) {
-		err = errors.New("one or more parameters were invalid; use the 'help' command for syntax")
+		err = errors.New("one or more parameters were invalid; " +
+			"use the 'help' command for syntax")
 		return
 	}
 
@@ -263,7 +264,7 @@ func CLIHandleAgentAction(actionName string, actionType string, argv []string) (
 	return
 }
 
-// Unmarshals a JSON request string into an [APIRequest].
+// UnmarshalAPIResponse parses a JSON request string into an [APIRequest].
 func UnmarshalAPIResponse(responseJSON string) (response *APIResponse, err error) {
 	// Attempt to unmarshal the request into the target object.
 	response = &APIResponse{}
