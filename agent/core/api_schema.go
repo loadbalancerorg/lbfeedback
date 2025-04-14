@@ -20,7 +20,7 @@
 
 package agent
 
-// Defines an [APIRequest] received from a client to the agent.
+// APIRequest defines a request received from a client to the agent.
 type APIRequest struct {
 	// Global API request fields that apply to any request.
 	APIKey     string `json:"api-key,omitempty"`
@@ -39,13 +39,12 @@ type APIRequest struct {
 	CommandList      *string                     `json:"command-list,omitempty"`
 	CommandInterval  *int                        `json:"command-interval,omitempty"`
 	ThresholdEnabled *bool                       `json:"threshold-enabled,omitempty"`
-	ThresholdScore   *int                        `json:"threshold-min,omitempty"`
+	ThresholdScore   *int                        `json:"threshold-max,omitempty"`
 
 	// API fields for SourceMonitor operations.
 	SourceMonitorName  *string  `json:"monitor,omitempty"`
 	SourceSignificance *float64 `json:"significance,omitempty"`
 	SourceMaxValue     *int64   `json:"max-value,omitempty"`
-	SourceThreshold    *int64   `json:"threshold,omitempty"`
 
 	// API fields for SystemMonitor operations.
 	MetricType     *string       `json:"metric-type,omitempty"`
@@ -53,7 +52,7 @@ type APIRequest struct {
 	MetricParams   *MetricParams `json:"metric-config,omitempty"`
 }
 
-// Defines an [APIResponse] to be sent from the agent to a client.
+// APIResponse defines a response to be sent from the agent to a client.
 type APIResponse struct {
 	APIName         string                     `json:"service-name"`
 	Version         string                     `json:"version"`
@@ -75,6 +74,8 @@ type APIServiceStatus struct {
 	ServiceStatus string `json:"status"`
 }
 
-// -------------------------------------------------------------------
-// END OF FILE
-// -------------------------------------------------------------------
+type APIConfig struct {
+	IPAddress string
+	Port      string
+	Key       string
+}

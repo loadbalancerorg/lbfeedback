@@ -31,8 +31,8 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// Handles an incoming JSON API request received by this [FeedbackAgent]
-// via a [FeedbackResponder] service.
+// ReceiveAPIRequest handles an incoming JSON API request received by this
+// FeedbackAgent via a FeedbackResponder service.
 func (agent *FeedbackAgent) ReceiveAPIRequest(requestJSON string) (
 	responseJSON string, err error, quitAfterResponding bool) {
 	// Unmarshal into an empty request
@@ -49,7 +49,7 @@ func (agent *FeedbackAgent) ReceiveAPIRequest(requestJSON string) (
 	return
 }
 
-// Unmarshals a JSON request string into an [APIRequest].
+// UnmarshalAPIRequest unmarshals a JSON request string into an APIRequest.
 func UnmarshalAPIRequest(requestJSON string) (request *APIRequest, err error) {
 	// Attempt to unmarshal the request into the target object.
 	request = &APIRequest{}
@@ -57,7 +57,7 @@ func UnmarshalAPIRequest(requestJSON string) (request *APIRequest, err error) {
 	return
 }
 
-// Performs basic initial sanity checks of an API request.
+// ValidateAPIRequest performs basic initial sanity checks of an API request.
 func (agent *FeedbackAgent) ValidateAPIRequest(request *APIRequest) (errID string,
 	errMsg string) {
 	if request == nil {
@@ -75,7 +75,7 @@ func (agent *FeedbackAgent) ValidateAPIRequest(request *APIRequest) (errID strin
 	return
 }
 
-// Processes an incoming API request and performs the required actions.
+// ProcessAPIRequest processes an incoming API request and performs the required actions.
 func (agent *FeedbackAgent) ProcessAPIRequest(request *APIRequest, parseErr error) (
 	response *APIResponse, quitAfterResponding bool) {
 	// -- Perform required initialisation and validation.
@@ -240,7 +240,7 @@ func (agent *FeedbackAgent) apiActionTree(request *APIRequest, response *APIResp
 	return
 }
 
-// Builds an array of the service status.
+// GetServiceStatusArray builds an array of the service status.
 func (agent *FeedbackAgent) GetServiceStatusArray() (array []APIServiceStatus) {
 	// Report status of responders
 	for name, responder := range agent.Responders {
@@ -255,7 +255,7 @@ func (agent *FeedbackAgent) GetServiceStatusArray() (array []APIServiceStatus) {
 	return
 }
 
-// Appends an item to the service status array.
+// AppendToStatusArray appends an item to a service status array.
 func AppendToStatusArray(array []APIServiceStatus, serviceType string,
 	name string, state string) []APIServiceStatus {
 	return append(array, APIServiceStatus{
@@ -265,7 +265,7 @@ func AppendToStatusArray(array []APIServiceStatus, serviceType string,
 	})
 }
 
-// Converts a boolean running state to a descriptive string.
+// ServiceRunningToString converts a boolean running state to a descriptive string.
 func ServiceRunningToString(running bool) string {
 	if running {
 		return "running"
@@ -274,7 +274,7 @@ func ServiceRunningToString(running bool) string {
 	}
 }
 
-// Outputs the current agent status as a descriptive string.
+// GetAgentStatusString outputs the current agent status as a descriptive string.
 func (agent *FeedbackAgent) GetAgentStatusString() (status string) {
 	if agent.isStarting {
 		status = "starting"
@@ -286,7 +286,7 @@ func (agent *FeedbackAgent) GetAgentStatusString() (status string) {
 	return
 }
 
-// Makes a log line description of an API request.
+// BuildAPIDescription makes a log line description of an API request.
 func BuildAPIDescription(request *APIRequest) (desc string) {
 	desc = "(no action)"
 	if request.Action != "" {
@@ -648,11 +648,11 @@ func (agent *FeedbackAgent) APIHandleSourceRequest(request *APIRequest) (
 	case "add":
 		err = res.AddFeedbackSource(*request.SourceMonitorName,
 			request.SourceSignificance, request.SourceMaxValue,
-			request.SourceThreshold)
+			request.ThresholdScore)
 	case "edit":
 		err = res.EditFeedbackSource(*request.SourceMonitorName,
 			request.SourceSignificance, request.SourceMaxValue,
-			request.SourceThreshold)
+			request.ThresholdScore)
 	case "delete":
 		err = res.DeleteFeedbackSource(*request.SourceMonitorName)
 	default:

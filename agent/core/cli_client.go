@@ -139,10 +139,9 @@ func CLIHandleAgentAction(actionName string, actionType string, argv []string) (
 	argMonitorName := apiArgs.String("monitor", "", "")
 	argSourceSignificance := apiArgs.Float64("significance", 1.0, "")
 	argSourceMaxValue := apiArgs.Int64("max-value", -1, "")
-	argSourceThreshold := apiArgs.Int64("threshold", -1, "")
 	argMetricType := apiArgs.String("metric-type", "", "")
 
-	// Fields for [MetricParams] configuration. Note that all
+	// Fields for MetricParams configuration. Note that all
 	// of these are String values within metric.go.
 	argSampleTime := apiArgs.String("sampling-ms", "", "")
 	argScriptName := apiArgs.String("script-name", "", "")
@@ -151,7 +150,7 @@ func CLIHandleAgentAction(actionName string, actionType string, argv []string) (
 	// $$ TO DO: Define help for actions.
 	err = apiArgs.Parse(argv)
 	if err != nil && !errors.Is(err, flag.ErrHelp) {
-		err = errors.New("one or more parameters were invalid; " +
+		err = errors.New("one or more parameters are invalid; " +
 			"use the 'help' command for syntax")
 		return
 	}
@@ -166,7 +165,6 @@ func CLIHandleAgentAction(actionName string, actionType string, argv []string) (
 	argCommandInterval = PointerHandleIntValue(argCommandInterval)
 	argCommandList = PointerHandleStringValue(argCommandList)
 	argSourceMaxValue = PointerHandleInt64Value(argSourceMaxValue)
-	argSourceThreshold = PointerHandleInt64Value(argSourceThreshold)
 
 	// This is a workaround from a bug with the go flags package where bool
 	// parameters were not always being correctly parsed.
@@ -190,7 +188,6 @@ func CLIHandleAgentAction(actionName string, actionType string, argv []string) (
 		SourceMonitorName:  argMonitorName,
 		SourceSignificance: argSourceSignificance,
 		SourceMaxValue:     argSourceMaxValue,
-		SourceThreshold:    argSourceThreshold,
 		MetricType:         argMetricType,
 		MetricInterval:     argCommandInterval,
 		MetricParams: &MetricParams{
@@ -214,19 +211,19 @@ func CLIHandleAgentAction(actionName string, actionType string, argv []string) (
 		configDir, _ = os.Getwd()
 	}
 	// Attempt to load the API access settings from the config file.
-	ip, port, key, err := LoadAPIConfigFromFile(configDir, configFile)
+	// ip, port, key, err := LoadAPIConfigFromFile(configDir, configFile)
+	config, err := LoadAPIConfigFromFile(configDir, configFile)
 	if err != nil {
 		return
 	}
 	// Set the API key in the new request and build the URL.
-	request.APIKey = key
-	apiURL := "https://" + ip + ":" + port
+	request.APIKey = config.Key
+	apiURL := "https://" + config.IPAddress + ":" + config.Port
 	// Marshal the request into JSON to send to the agent API.
 	reqBodyJSON, err := json.MarshalIndent(request, "", "    ")
 	if err != nil {
 		return
 	}
-
 	// Create a custom transport object with certificate validation
 	// checking disabled. Really, we should at some point implement
 	// a method for setting a custom CA which is shared between the
@@ -272,8 +269,8 @@ func UnmarshalAPIResponse(responseJSON string) (response *APIResponse, err error
 	return
 }
 
-// Attempts to load the API access details from the JSON config.
-func LoadAPIConfigFromFile(dir string, file string) (ip string, port string, key string, err error) {
+// LoadAPIConfigFromFile attempts to load the API access details from the JSON config.
+func LoadAPIConfigFromFile(dir string, file string) (config APIConfig, err error) {
 	// Try to load a config from the location.
 	agentConfig := FeedbackAgent{}
 	agentConfig.InitialiseServiceMaps()
@@ -289,9 +286,11 @@ func LoadAPIConfigFromFile(dir string, file string) (ip string, port string, key
 	if err != nil {
 		err = errors.New("failed to obtain API config: " + err.Error())
 	}
-	ip = api.ListenIPAddress
-	port = api.ListenPort
-	key = agentConfig.APIKey
+	config = APIConfig{
+		IPAddress: api.ListenIPAddress,
+		Port:      api.ListenPort,
+		Key:       agentConfig.APIKey,
+	}
 	return
 }
 

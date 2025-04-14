@@ -54,6 +54,7 @@ type FeedbackResponder struct {
 	CommandInterval       int                        `json:"command-interval,omitempty"`
 	ThresholdEnabled      bool                       `json:"threshold-enabled"`
 	ThresholdScore        int                        `json:"threshold-score,omitempty"`
+	ThresholdModeName     string                     `json:"threshold-mode,omitempty"`
 	EnableOfflineInterval bool                       `json:"enable-offline-interval,omitempty"`
 
 	// -- Exported configuration fields.
@@ -87,6 +88,30 @@ type FeedbackResponder struct {
 	// allow it to be interrupted if the feedback score falls
 	// within the "up" threshold range?
 	forceCommandState bool
+
+	// Currently configured threshold mode (from string).
+	thresholdMode ThresholdMode
+}
+
+// Modes for threshold functionality.
+
+type ThresholdMode int
+
+const (
+	ThresholdModeAny ThresholdMode = iota
+	ThresholdModeOverall
+	ThresholdModeMetric
+)
+const (
+	ThresholdStringAny     = "any"
+	ThresholdStringOverall = "overall"
+	ThresholdStringMetric  = "metric"
+)
+
+var thresholdStringToMode = map[string]ThresholdMode{
+	ThresholdStringAny:     ThresholdModeAny,
+	ThresholdStringOverall: ThresholdModeOverall,
+	ThresholdStringMetric:  ThresholdModeMetric,
 }
 
 // FeedbackSource defines a source mapping for a FeedbackResponder to a
@@ -125,10 +150,12 @@ const (
 	// As per the previous Loadbalancer.org Feedback Agent, the
 	// default online command is "up ready" and the default
 	// command to offline is "drain" (as requested by MT).
+
 	HAPDefaultOnline  = HAPEnumUp | HAPEnumReady
 	HAPDefaultOffline = HAPEnumDrain
 
 	// Strings for sending composite feedback commands to HAProxy.
+
 	HAPCommandNone    = ""
 	HAPCommandUp      = "up"
 	HAPCommandReady   = "ready"
@@ -139,6 +166,7 @@ const (
 	HAPCommandStopped = "stopped"
 
 	// JSON configuration settings for group options (default, none).
+
 	HAPConfigDefault = "default"
 	HAPConfigNone    = "none"
 
@@ -147,11 +175,12 @@ const (
 	// but may likely need to be increased by modifying the
 	// configuration for many use cases. This is presumably intended
 	// to be the most conservative value.
+
 	DefaultCommandInterval = 10
 )
 
-// Constructor for [FeedbackResponder], which must be used when creating
-// a new responder object.
+// NewResponder creates a new FeedbackResponder object. This constructor must
+// be used when creating a new responder object.
 func NewResponder(name string, sources map[string]*FeedbackSource,
 	protocol string, ip string, port string, commands string,
 	enableThreshold bool, threshold int, agent *FeedbackAgent) (
@@ -180,9 +209,9 @@ func NewResponder(name string, sources map[string]*FeedbackSource,
 	return
 }
 
-// Create maps and order array for the HAProxy command state
-// management functions. These cannot be set as constants in
-// Go, unfortunately.
+// SetHAPCommandMaps creates the maps and order array for the
+// HAProxy command state management functions. These cannot be set
+// as constants in Go, unfortunately.
 func (fbr *FeedbackResponder) SetHAPCommandMaps() {
 	fbr.commandToEnum = map[string]int{
 		HAPCommandNone:    HAPEnumNone,
@@ -216,7 +245,7 @@ func (fbr *FeedbackResponder) SetHAPCommandMaps() {
 	}
 }
 
-// Initialises this [FeedbackResponder] and configures defaults.
+// Initialise sets up this FeedbackResponder and configures defaults.
 func (fbr *FeedbackResponder) Initialise() (err error) {
 	// Initialise the mutex, if required.
 	if fbr.mutex == nil {
@@ -267,6 +296,10 @@ func (fbr *FeedbackResponder) Initialise() (err error) {
 		return
 	}
 	err = fbr.ConfigureInterval(interval)
+	if err != nil {
+		return
+	}
+	err = fbr.SetThresholdModeFromString(fbr.ThresholdModeName)
 	if err != nil {
 		return
 	}
@@ -365,7 +398,7 @@ func (fbr *FeedbackResponder) initialiseSources() (err error) {
 }
 
 func (fbr *FeedbackResponder) AddFeedbackSource(name string,
-	significance *float64, maxValue *int64, threshold *int64) (err error) {
+	significance *float64, maxValue *int64, threshold *int) (err error) {
 	fbr.mutex.Lock()
 	defer fbr.mutex.Unlock()
 	name = strings.TrimSpace(name)
@@ -401,7 +434,8 @@ func (fbr *FeedbackResponder) AddFeedbackSource(name string,
 	if maxValue != nil {
 		metricMax = *maxValue
 	}
-	thresholdValue := int64(100)
+	// Default threshold value is 100.
+	thresholdValue := 100
 	if threshold != nil {
 		thresholdValue = *threshold
 	}
@@ -409,7 +443,7 @@ func (fbr *FeedbackResponder) AddFeedbackSource(name string,
 		Monitor:      mon,
 		Significance: sigValue,
 		MaxValue:     metricMax,
-		Threshold:    thresholdValue,
+		Threshold:    int64(thresholdValue),
 	}
 	fbr.FeedbackSources[name] = &newSource
 	fbr.mutex.Unlock()
@@ -425,7 +459,7 @@ func (fbr *FeedbackResponder) AddFeedbackSource(name string,
 }
 
 func (fbr *FeedbackResponder) EditFeedbackSource(name string, significance *float64,
-	maxValue *int64, threshold *int64) (err error) {
+	maxValue *int64, threshold *int) (err error) {
 	fbr.mutex.Lock()
 	defer fbr.mutex.Unlock()
 	source, exists := fbr.FeedbackSources[name]
@@ -445,7 +479,7 @@ func (fbr *FeedbackResponder) EditFeedbackSource(name string, significance *floa
 		source.MaxValue = *maxValue
 	}
 	if threshold != nil {
-		source.Threshold = *threshold
+		source.Threshold = int64(*threshold)
 	}
 	fbr.FeedbackSources[name] = source
 	fbr.mutex.Unlock()
@@ -477,7 +511,7 @@ func (fbr *FeedbackResponder) DeleteFeedbackSource(name string) (err error) {
 	return
 }
 
-// Configures the HAProxy command parameters for this [FeedbackResponder],
+// setHAPCommandMask configures the HAProxy command parameters for this FeedbackResponder,
 // based on whether this should replace any commands currently set and if
 // the list of commands provided should be removed rather than added.
 func (fbr *FeedbackResponder) setHAPCommandMask(commands string,
@@ -538,7 +572,7 @@ func (fbr *FeedbackResponder) setHAPCommandMask(commands string,
 	return
 }
 
-// Copies this [FeedbackResponder] into a new object.
+// Copy copies this FeedbackResponder into a new object.
 func (fbr *FeedbackResponder) Copy() (copy FeedbackResponder) {
 	fbr.mutex.Lock()
 	defer fbr.mutex.Unlock()
@@ -548,7 +582,7 @@ func (fbr *FeedbackResponder) Copy() (copy FeedbackResponder) {
 	return
 }
 
-// Parses a network port into a sanitised version, returning
+// ParseNetworkPort parses a network port into a sanitised version, returning
 // an error if it cannot be parsed.
 func ParseNetworkPort(port string) (result string, err error) {
 	// Validate and sanitise port
@@ -583,7 +617,7 @@ func ParseIPAddress(ip string) (result string, err error) {
 	return
 }
 
-// Starts the [FeedbackResponder] service, returning an error in the event
+// Start starts the FeedbackResponder service, returning an error in the event
 // of failure, by launching the main code of the service as a goroutine.
 func (fbr *FeedbackResponder) Start() (err error) {
 	fbr.mutex.Lock()
@@ -614,7 +648,7 @@ func (fbr *FeedbackResponder) Start() (err error) {
 	return
 }
 
-// Attempts to restart the [FeedbackResponder] service.
+// Restart attempts to restart the FeedbackResponder service.
 func (fbr *FeedbackResponder) Restart() (err error) {
 	if fbr.IsRunning() {
 		err = fbr.Stop()
@@ -626,7 +660,7 @@ func (fbr *FeedbackResponder) Restart() (err error) {
 	return
 }
 
-// Stops the service from running.
+// Stop stops the service from running.
 func (fbr *FeedbackResponder) Stop() (err error) {
 	if fbr.IsRunning() {
 		fbr.mutex.Lock()
@@ -644,7 +678,7 @@ func (fbr *FeedbackResponder) Stop() (err error) {
 	return
 }
 
-// Returns whether this [FeedbackResponder] is running or not.
+// IsRunning returns whether this FeedbackResponder is running or not.
 func (fbr *FeedbackResponder) IsRunning() (state bool) {
 	fbr.mutex.Lock()
 	defer fbr.mutex.Unlock()
@@ -652,7 +686,7 @@ func (fbr *FeedbackResponder) IsRunning() (state bool) {
 	return
 }
 
-// The run function to call when the service starts; e.g.
+// run is the function to call when the service starts; e.g.
 // the worker thread.
 func (fbr *FeedbackResponder) run(initChannel chan int) {
 	// Start by obtaining the mutex lock before doing anything else.
@@ -694,12 +728,12 @@ func (fbr *FeedbackResponder) run(initChannel chan int) {
 	logrus.Info(fbr.getLogHead() + "has stopped.")
 }
 
-// Utility function for the start of log entries for this [FeedbackResponder].
+// getLogHead is a utility function for the start of log entries for this FeedbackResponder.
 func (fbr *FeedbackResponder) getLogHead() string {
 	return "Responder '" + fbr.ResponderName + "' "
 }
 
-// Sets the current HAProxy command state, resetting the state expiry.
+// SetHAPCommandState sets the current HAProxy command state, resetting the state expiry.
 func (fbr *FeedbackResponder) SetHAPCommandState(isOnline bool, force bool,
 	overrideMask int) {
 	fbr.mutex.Lock()
@@ -710,14 +744,14 @@ func (fbr *FeedbackResponder) SetHAPCommandState(isOnline bool, force bool,
 	fbr.resetStateExpiry()
 }
 
-// Resets the current HAProxy command state expiry.
+// resetStateExpiry resets the current HAProxy command state expiry.
 func (fbr *FeedbackResponder) resetStateExpiry() {
 	fbr.stateExpiry = time.Now().Add(
 		time.Second * time.Duration(fbr.CommandInterval),
 	)
 }
 
-// Sets the command threshold for this [FeedbackResponder].
+// ConfigureThresholdValue sets the command threshold for this FeedbackResponder.
 func (fbr *FeedbackResponder) ConfigureThresholdValue(threshold int) (err error) {
 	if threshold < 0 {
 		err = errors.New(fbr.getLogHead() + "invalid threshold; cannot be negative")
@@ -886,7 +920,7 @@ func (fbr *FeedbackResponder) GetResponse(request string) (response string, quit
 	return
 }
 
-// Generates an HAProxy command string based on the current
+// GenerateCommandString generates an HAProxy command string based on the current
 // command mask and a specified online state.
 func (fbr *FeedbackResponder) GenerateCommandString(online bool, currentMask int) (
 	commands string) {
@@ -898,7 +932,7 @@ func (fbr *FeedbackResponder) GenerateCommandString(online bool, currentMask int
 	return
 }
 
-// Converts an HAProxy command mask to a string, ignoring any command
+// CommandMaskToString converts an HAProxy command mask to a string, ignoring any command
 // enums that don't have any bits matching the filter.
 func (fbr *FeedbackResponder) CommandMaskToString(commandMask int, enumMask int,
 	filter int) (commands string) {
@@ -915,6 +949,21 @@ func (fbr *FeedbackResponder) CommandMaskToString(commandMask int, enumMask int,
 	return
 }
 
-// -------------------------------------------------------------------
-// END OF FILE
-// -------------------------------------------------------------------
+// SetThresholdModeFromString sets the current threshold name and string
+// from a specified string value, returning an error (and leaving the mode
+// unchanged) if the specified string is invalid.
+func (fbr *FeedbackResponder) SetThresholdModeFromString(str string) (err error) {
+	str = strings.ToLower(strings.TrimSpace(str))
+	if str == "" {
+		// Set to default if no threshold string is currently configured.
+		str = ThresholdStringAny
+	}
+	mode, exists := thresholdStringToMode[str]
+	if !exists {
+		err = errors.New("threshold mode '" + str + "' is invalid")
+		return
+	}
+	fbr.thresholdMode = mode
+	fbr.ThresholdModeName = str
+	return
+}

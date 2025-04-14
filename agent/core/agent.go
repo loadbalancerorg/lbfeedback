@@ -360,7 +360,7 @@ func (agent *FeedbackAgent) StopMonitorByName(name string) (err error) {
 	return
 }
 
-// Deletes a [SystemMonitor] by name from the map.
+// DeleteMonitorByName deletes a SystemMonitor by name from the map.
 func (agent *FeedbackAgent) DeleteMonitorByName(name string) (err error) {
 	err = agent.StopMonitorByName(name)
 	if err != nil {
@@ -370,7 +370,7 @@ func (agent *FeedbackAgent) DeleteMonitorByName(name string) (err error) {
 	return
 }
 
-// Attempts to load the agent configuration from a JSON file at the
+// LoadOrCreateConfig attempts to load the agent configuration from a JSON file at the
 // configured system paths, and if it cannot do so, sets up the
 // default agent configuration; this will be written to a new JSON
 // file if one currently does not exist.
@@ -421,7 +421,7 @@ func (agent *FeedbackAgent) LoadOrCreateConfig() (err error) {
 	return
 }
 
-// Checks to see if a file exists at the given directory path and file name.
+// FileExists checks to see if a file exists at the given directory path and file name.
 func FileExists(dirPath string, fileName string) (exists bool) {
 	fullPath := path.Join(dirPath, fileName)
 	_, err := os.Stat(fullPath)
@@ -431,7 +431,7 @@ func FileExists(dirPath string, fileName string) (exists bool) {
 	return
 }
 
-// Attempts to load the agent configuration from a specified path and name.
+// LoadAgentConfig attempts to load the agent configuration from a specified path and name.
 func (agent *FeedbackAgent) LoadAgentConfig(dirPath string, fileName string) (
 	success bool, err error) {
 	fullPath := path.Join(dirPath, fileName)
@@ -454,13 +454,13 @@ func (agent *FeedbackAgent) LoadAgentConfig(dirPath string, fileName string) (
 	return
 }
 
-// Saves the agent configuration to the default system paths.
+// SaveAgentConfigToPaths saves the agent configuration to the default system paths.
 func (agent *FeedbackAgent) SaveAgentConfigToPaths() (success bool, err error) {
 	success, err = agent.SaveAgentConfig(agent.configDir, ConfigFileName)
 	return
 }
 
-// Saves the agent configuration to a specified directory and filename.
+// SaveAgentConfig saves the agent configuration to a specified directory and filename.
 func (agent *FeedbackAgent) SaveAgentConfig(dirPath string, fileName string) (
 	success bool, err error) {
 	// Convert the config into a JSON stream for writing to the new file.
@@ -515,8 +515,8 @@ func (agent *FeedbackAgent) SaveAgentConfig(dirPath string, fileName string) (
 	return
 }
 
-// Creates a directory if it doesn't exist, and returns an error
-// if creation is unsuccessful.
+// CreateDirectoryIfMissing creates a directory if it doesn't exist, and
+// returns an error if creation is unsuccessful.
 func CreateDirectoryIfMissing(dir string) (err error) {
 	_, err = os.ReadDir(dir)
 	if err != nil {
@@ -528,7 +528,7 @@ func CreateDirectoryIfMissing(dir string) (err error) {
 	return
 }
 
-// Adds a monitor service to this [FeedbackAgent].
+// AddMonitor adds a monitor service to this FeedbackAgent.
 func (agent *FeedbackAgent) AddMonitor(name string, metric string, interval int, params MetricParams,
 	model *StatisticsModel) (err error) {
 	mon, err := NewSystemMonitor(
@@ -545,14 +545,14 @@ func (agent *FeedbackAgent) AddMonitor(name string, metric string, interval int,
 	return
 }
 
-// Sets the default paths for this [FeedbackAgent]
+// SetDefaultPaths sets the default paths for this FeedbackAgent.
 func (agent *FeedbackAgent) SetDefaultPaths() {
 	agent.configDir = DefaultConfigDir
 	agent.LogDir = DefaultLogDir
 }
 
-// Sets up the agent with a default configuration consisting of one
-// CPU monitor and one HTTP responder, connected together.
+// SetDefaultServiceConfig sets up the agent with a default configuration
+// consisting of one CPU monitor and one HTTP responder, connected together.
 func (agent *FeedbackAgent) SetDefaultServiceConfig() (err error) {
 	agent.InitialiseServiceMaps()
 	err = agent.AddMonitor(
@@ -579,6 +579,7 @@ func (agent *FeedbackAgent) SetDefaultServiceConfig() (err error) {
 		"cpu": {
 			Significance: 1.0,
 			MaxValue:     100,
+			Threshold:    100,
 		},
 	}
 	defaultResponder := FeedbackResponder{
@@ -599,13 +600,13 @@ func (agent *FeedbackAgent) SetDefaultServiceConfig() (err error) {
 	return
 }
 
-// Outputs this agent object's configuration as JSON.
+// ConfigToJSON outputs this agent object's configuration as JSON.
 func (agent *FeedbackAgent) ConfigToJSON() (output []byte, err error) {
 	output, err = json.MarshalIndent(agent, "", "    ")
 	return
 }
 
-// Configures the [FeedbackAgent] service from a byte stream of JSON
+// JSONToConfig configures the FeedbackAgent service from a byte stream of JSON
 // configuration data by parsing it.
 func (agent *FeedbackAgent) JSONToConfig(config []byte) (err error) {
 	parsed := FeedbackAgent{}
@@ -623,8 +624,8 @@ func (agent *FeedbackAgent) JSONToConfig(config []byte) (err error) {
 	return
 }
 
-// Sets up file logging given a string specifying the log directory on the
-// local system, disabling it entirely if an empty string is supplied.
+// InitialiseFileLogging sets up file logging given a string specifying the log
+// directory on the local system, disabling it entirely if an empty string is supplied.
 func (agent *FeedbackAgent) InitialiseFileLogging(dir string) (err error) {
 	// Switch off if no path provided.
 	if strings.TrimSpace(dir) == "" {
@@ -646,9 +647,9 @@ func (agent *FeedbackAgent) InitialiseFileLogging(dir string) (err error) {
 	return
 }
 
-// Populates the Monitor and Responder services in this [FeedbackAgent]
-// based on the fields set within the parsed object. Any validation errors
-// will result in an error being returned.
+// configureFromObject populates the Monitor and Responder services in this
+// FeedbackAgent based on the fields set within the parsed object. Any
+// validation errors will result in an error being returned.
 func (agent *FeedbackAgent) configureFromObject(parsed *FeedbackAgent) (err error) {
 	agent.LogDir = parsed.LogDir
 	agent.APIKey = parsed.APIKey
@@ -671,7 +672,7 @@ func (agent *FeedbackAgent) configureFromObject(parsed *FeedbackAgent) (err erro
 	return
 }
 
-// Adds a monitor object to this [FeedbackAgent].
+// AddMonitorObject adds a monitor object to this FeedbackAgent.
 func (agent *FeedbackAgent) AddMonitorObject(monitor *SystemMonitor) (err error) {
 	_, nameExists := agent.Monitors[monitor.Name]
 	if nameExists {
@@ -709,8 +710,8 @@ func (agent *FeedbackAgent) AddResponderObject(responder *FeedbackResponder) (er
 	return
 }
 
-// Creates a Responder associated with a given Monitor, returning an
-// error if the Monitor does not exist.
+// AddResponder creates a Responder associated with a given Monitor,
+// returning an error if the Monitor does not exist.
 func (agent *FeedbackAgent) AddResponder(name string,
 	sources map[string]*FeedbackSource, protocol string, ip string,
 	port string, hapCommands string, enableThreshold bool,
@@ -740,7 +741,7 @@ func (agent *FeedbackAgent) AddResponder(name string,
 	return
 }
 
-// Clears all configured services from this [FeedbackAgent].
+// InitialiseServiceMaps clears all configured services from this FeedbackAgent.
 func (agent *FeedbackAgent) InitialiseServiceMaps() {
 	agent.Monitors = make(map[string]*SystemMonitor)
 	agent.Responders = make(map[string]*FeedbackResponder)

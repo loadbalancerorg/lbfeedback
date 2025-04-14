@@ -111,6 +111,14 @@ PARAMETERS:
   -response-timeout   Response timeout (ms).
   -threshold-enabled  Enable HAProxy automatic command threshold (true/false).
   -threshold-max      Maximum load for an online state (percent).
+  -threshold-mode     Mode for automatic command threshold (default 'any'):
+                      'any'     Down if any metric or overall relative load
+                                exceeds the configured threshold.
+                      'overall' Down if the overall relative load exceeds the
+                                configured threshold, ignoring individual 
+                                metrics.
+                      'metrics' Down if any metric exceeds the configured 
+                                threshold, ignoring the overall relative load.
   -command-interval   Time interval to send HAProxy commands for (ms, 
                       default 10000).
   -monitor            Name identifier of a target Monitor.
