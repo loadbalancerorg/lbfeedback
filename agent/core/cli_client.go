@@ -125,13 +125,13 @@ func CLIHandleAgentAction(actionName string, actionType string, argv []string) (
 	argTargetName := apiArgs.String("name", "", "")
 	argCommandList := apiArgs.String("command-list", "", "")
 
-	// Fields for [FeedbackResponder] API requests.
+	// Fields for FeedbackResponder API requests.
 	argProtocolName := apiArgs.String("protocol", "", "")
 	argIPAddress := apiArgs.String("ip", "", "")
 	argListenPort := apiArgs.String("port", "", "")
 	argRequestTimeout := apiArgs.Int("request-timeout", 0, "")
 	argResponseTimeout := apiArgs.Int("response-timeout", 0, "")
-	argThresholdString := apiArgs.String("threshold-enabled", "", "")
+	argThresholdString := apiArgs.String("threshold-string", "", "")
 	argResponderThreshold := apiArgs.Int("threshold-max", 0, "")
 	argCommandInterval := apiArgs.Int("command-interval", -1, "")
 
@@ -166,10 +166,6 @@ func CLIHandleAgentAction(actionName string, actionType string, argv []string) (
 	argCommandList = PointerHandleStringValue(argCommandList)
 	argSourceMaxValue = PointerHandleInt64Value(argSourceMaxValue)
 
-	// This is a workaround from a bug with the go flags package where bool
-	// parameters were not always being correctly parsed.
-	argThresholdEnabled := PointerHandleBoolString(argThresholdString)
-
 	// Set fields into the new API request; the API will be responsible
 	// for determining the validity of options for a request.
 	request := APIRequest{
@@ -182,7 +178,7 @@ func CLIHandleAgentAction(actionName string, actionType string, argv []string) (
 		RequestTimeout:     argRequestTimeout,
 		ResponseTimeout:    argResponseTimeout,
 		CommandList:        argCommandList,
-		ThresholdEnabled:   argThresholdEnabled,
+		ThresholdMode:      argThresholdString,
 		ThresholdScore:     argResponderThreshold,
 		CommandInterval:    argCommandInterval,
 		SourceMonitorName:  argMonitorName,

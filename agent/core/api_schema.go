@@ -30,16 +30,16 @@ type APIRequest struct {
 	TargetName string `json:"target-name,omitempty"`
 
 	// API fields for FeedbackResponder operations.
-	ProtocolName     *string                     `json:"protocol,omitempty"`
-	ListenIPAddress  *string                     `json:"ip,omitempty"`
-	ListenPort       *string                     `json:"port,omitempty"`
-	FeedbackSources  *map[string]*FeedbackSource `json:"feedback-sources,omitempty"`
-	RequestTimeout   *int                        `json:"request-timeout,omitempty"`
-	ResponseTimeout  *int                        `json:"response-timeout,omitempty"`
-	CommandList      *string                     `json:"command-list,omitempty"`
-	CommandInterval  *int                        `json:"command-interval,omitempty"`
-	ThresholdEnabled *bool                       `json:"threshold-enabled,omitempty"`
-	ThresholdScore   *int                        `json:"threshold-max,omitempty"`
+	ProtocolName    *string                     `json:"protocol,omitempty"`
+	ListenIPAddress *string                     `json:"ip,omitempty"`
+	ListenPort      *string                     `json:"port,omitempty"`
+	FeedbackSources *map[string]*FeedbackSource `json:"feedback-sources,omitempty"`
+	RequestTimeout  *int                        `json:"request-timeout,omitempty"`
+	ResponseTimeout *int                        `json:"response-timeout,omitempty"`
+	CommandList     *string                     `json:"command-list,omitempty"`
+	CommandInterval *int                        `json:"command-interval,omitempty"`
+	ThresholdMode   *string                     `json:"threshold-mode,omitempty"`
+	ThresholdScore  *int                        `json:"threshold-max,omitempty"`
 
 	// API fields for SourceMonitor operations.
 	SourceMonitorName  *string  `json:"monitor,omitempty"`

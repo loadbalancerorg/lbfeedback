@@ -714,7 +714,7 @@ func (agent *FeedbackAgent) AddResponderObject(responder *FeedbackResponder) (er
 // returning an error if the Monitor does not exist.
 func (agent *FeedbackAgent) AddResponder(name string,
 	sources map[string]*FeedbackSource, protocol string, ip string,
-	port string, hapCommands string, enableThreshold bool,
+	port string, hapCommands string, thresholdMode string,
 	hapThreshold int) (err error) {
 	_, nameExists := agent.Responders[name]
 	if nameExists {
@@ -727,7 +727,7 @@ func (agent *FeedbackAgent) AddResponder(name string,
 	responder, err := NewResponder(
 		name, sources, protocol,
 		ip, port, hapCommands,
-		enableThreshold, hapThreshold,
+		thresholdMode, hapThreshold,
 		agent,
 	)
 	if err != nil {

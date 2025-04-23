@@ -62,18 +62,6 @@ func RandomHexBytes(n int) (str string) {
 	return
 }
 
-func PointerHandleBoolString(input *string) (output *bool) {
-	if input != nil {
-		trimmedThresholdString := strings.TrimSpace(*input)
-		if trimmedThresholdString == "true" {
-			*output = true
-		} else if trimmedThresholdString == "false" {
-			*output = false
-		}
-	}
-	return
-}
-
 func PointerHandleIntValue(input *int) (output *int) {
 	output = input
 	if output == nil || *output < 0 {

@@ -222,7 +222,7 @@ func (agent *FeedbackAgent) apiActionTree(request *APIRequest, response *APIResp
 		switch request.Type {
 		case "halt", "maint":
 			err = agent.APIHandleSetOnlineState(request.TargetName,
-				false, HAPEnumMaint)
+				false, HAPEnumMaintenance)
 		case "drain":
 			err = agent.APIHandleSetOnlineState(request.TargetName,
 				false, HAPEnumDrain)
@@ -369,9 +369,9 @@ func (agent *FeedbackAgent) APIAddResponder(request *APIRequest) (err error) {
 	if request.ThresholdScore != nil {
 		hapThreshold = *request.ThresholdScore
 	}
-	enableThreshold := false
-	if request.ThresholdEnabled != nil {
-		enableThreshold = *request.ThresholdEnabled
+	thresholdMode := ""
+	if request.ThresholdMode != nil {
+		thresholdMode = *request.ThresholdMode
 	}
 	hapCommands := ""
 	if request.CommandList != nil {
@@ -386,7 +386,7 @@ func (agent *FeedbackAgent) APIAddResponder(request *APIRequest) (err error) {
 		ipAddress,
 		listenPort,
 		hapCommands,
-		enableThreshold,
+		thresholdMode,
 		hapThreshold,
 	)
 	// If we couldn't add the responder (e.g. because the monitor doesn't exist),
@@ -476,42 +476,33 @@ func (agent *FeedbackAgent) APIModifyResponder(request *APIRequest) (err error) 
 	}
 	if request.ProtocolName != nil {
 		if request.TargetName == "api" {
-			err = errors.New("API responders do not have a configurable " +
-				"protocol")
+			err = errors.New("API responders do not have a configurable protocol")
 			return
 		}
-		newResponder.ProtocolName =
-			*request.ProtocolName
+		newResponder.ProtocolName = *request.ProtocolName
 	}
 	if request.ListenIPAddress != nil {
-		newResponder.ListenIPAddress =
-			*request.ListenIPAddress
+		newResponder.ListenIPAddress = *request.ListenIPAddress
 	}
 	if request.ListenPort != nil {
-		newResponder.ListenPort =
-			*request.ListenPort
+		newResponder.ListenPort = *request.ListenPort
 	}
 	if request.RequestTimeout != nil {
-		newResponder.RequestTimeout =
-			time.Duration(*request.RequestTimeout)
+		newResponder.RequestTimeout = time.Duration(*request.RequestTimeout)
 	}
 	if request.ResponseTimeout != nil {
-		newResponder.ResponseTimeout =
-			time.Duration(*request.ResponseTimeout)
+		newResponder.ResponseTimeout = time.Duration(*request.ResponseTimeout)
 	}
-	if request.ThresholdEnabled != nil {
-		newResponder.ThresholdEnabled =
-			*request.ThresholdEnabled
+	if request.ThresholdMode != nil {
+		newResponder.ThresholdModeName = *request.ThresholdMode
 	}
 	if request.ThresholdScore != nil {
-		newResponder.ThresholdScore =
-			*request.ThresholdScore
+		newResponder.ThresholdScore = *request.ThresholdScore
 	}
 	if request.FeedbackSources != nil {
-		newResponder.FeedbackSources =
-			*request.FeedbackSources
+		newResponder.FeedbackSources = *request.FeedbackSources
 	}
-	// Attempt to initialise the new monitor to validate it, else error.
+	// Attempt to initialise the new responder to validate it, else error.
 	err = newResponder.Initialise()
 	if err != nil {
 		return
@@ -721,13 +712,13 @@ func (agent *FeedbackAgent) APIHandleSetThreshold(request *APIRequest) (
 		}
 		// Enable the threshold by default if a valid value was specified. This
 		// will be handled in the next block.
-		*request.ThresholdEnabled = true
+		*request.ThresholdMode = ThresholdStringAny
 		changed = true
 	}
 	// Process a change to whether the threshold is enabled, if provided
 	// or triggered by the above code.
-	if request.ThresholdEnabled != nil && (*request.ThresholdEnabled != res.ThresholdEnabled) {
-		err = res.ConfigureThresholdEnabled(*request.ThresholdEnabled)
+	if request.ThresholdMode != nil && (*request.ThresholdMode != res.ThresholdModeName) {
+		err = res.ConfigureThresholdMode(*request.ThresholdMode)
 		if err != nil {
 			return
 		}

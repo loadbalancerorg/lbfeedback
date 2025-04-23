@@ -31,9 +31,9 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// [SystemMonitor] defines a System Metric Monitor that measures a
+// SystemMonitor defines a System Metric Monitor that measures a
 // parameter on the local system concurrently, with these values passed
-// to a [StatisticsModel] for cumulative calculation into relative feedback
+// to a StatisticsModel for cumulative calculation into relative feedback
 // weights.
 type SystemMonitor struct {
 	Name          string           `json:"-"`
@@ -44,11 +44,11 @@ type SystemMonitor struct {
 	StatsModel    *StatisticsModel `json:"-"`
 	SysMetric     SystemMetric     `json:"-"`
 	LastError     error            `json:"-"`
-	signalChannel chan int         `json:"-"`
-	statusChannel chan int         `json:"-"`
-	runState      bool             `json:"-"`
-	isInitialised bool             `json:"-"`
-	mutex         *sync.Mutex      `json:"-"`
+	signalChannel chan int
+	statusChannel chan int
+	runState      bool
+	isInitialised bool
+	mutex         *sync.Mutex
 }
 
 const (
@@ -64,6 +64,7 @@ func NewSystemMonitor(name string, metric string, interval int,
 		MetricType:    metric,
 		Params:        params,
 		FilePath:      filePath,
+		StatsModel:    model,
 		signalChannel: make(chan int),
 		statusChannel: make(chan int),
 	}

@@ -40,10 +40,10 @@ import (
 // #######################################################################
 
 // FeedbackResponder implements a Feedback Responder service which uses
-// the specified [ProtocolConnector] to listen for and respond to clients
-// from data obtained via the associated [SystemMonitor] objects.
+// the specified ProtocolConnector to listen for and respond to clients
+// from data obtained via the associated SystemMonitor objects.
 type FeedbackResponder struct {
-	// -- JSON configuration fields for [FeedbackResponder].
+	// -- JSON configuration fields for the FeedbackResponder object.
 	ProtocolName          string                     `json:"protocol"`
 	ListenIPAddress       string                     `json:"ip"`
 	ListenPort            string                     `json:"port"`
@@ -52,7 +52,6 @@ type FeedbackResponder struct {
 	ResponseTimeout       time.Duration              `json:"response-timeout,omitempty"`
 	HAProxyCommands       string                     `json:"haproxy-commands,omitempty"`
 	CommandInterval       int                        `json:"command-interval,omitempty"`
-	ThresholdEnabled      bool                       `json:"threshold-enabled"`
 	ThresholdScore        int                        `json:"threshold-score,omitempty"`
 	ThresholdModeName     string                     `json:"threshold-mode,omitempty"`
 	EnableOfflineInterval bool                       `json:"enable-offline-interval,omitempty"`
@@ -67,11 +66,6 @@ type FeedbackResponder struct {
 	runState      bool
 	mutex         *sync.Mutex
 	statusChannel chan int
-
-	// Lookup tables for command enums and strings.
-	commandToEnum    map[string]int
-	enumToCommand    map[int]string
-	commandEnumOrder []int
 
 	// The last command state (online or offline) seen.
 	onlineState bool
@@ -93,25 +87,26 @@ type FeedbackResponder struct {
 	thresholdMode ThresholdMode
 }
 
-// Modes for threshold functionality.
+// -- Constants for threshold functionality.
 
 type ThresholdMode int
 
 const (
-	ThresholdModeAny ThresholdMode = iota
+	ThresholdModeNone ThresholdMode = iota
+	ThresholdModeAny
 	ThresholdModeOverall
-	ThresholdModeMetric
+	ThresholdModeSource
 )
 const (
 	ThresholdStringAny     = "any"
 	ThresholdStringOverall = "overall"
-	ThresholdStringMetric  = "metric"
+	ThresholdStringMetric  = "metrics"
 )
 
 var thresholdStringToMode = map[string]ThresholdMode{
 	ThresholdStringAny:     ThresholdModeAny,
 	ThresholdStringOverall: ThresholdModeOverall,
-	ThresholdStringMetric:  ThresholdModeMetric,
+	ThresholdStringMetric:  ThresholdModeSource,
 }
 
 // FeedbackSource defines a source mapping for a FeedbackResponder to a
@@ -125,6 +120,17 @@ type FeedbackSource struct {
 }
 
 const (
+	// Default interval for which to send HAProxy commands after a
+	// state change. This has been defined as 10 seconds as per MT,
+	// but may likely need to be increased by modifying the
+	// configuration for many use cases. This is presumably intended
+	// to be the most conservative value.
+
+	DefaultCommandInterval = 10
+)
+
+// -- Constants for HAProxy command handling.
+const (
 	// Flagged enums for sending composite feedback commands to HAProxy.
 	// These are designed with two properties; one, that the commands are
 	// configured as a single list (with the Responder knowing whether
@@ -134,18 +140,18 @@ const (
 	// done by the order of the enums and with a positive flag being
 	// included for both online and offline states.
 
-	HAPEnumNone    = 0x000
-	HAPMaskCommand = 0x0FF
-	HAPMaskAll     = 0xFFF
-	HAPOnlineFlag  = 0x100
-	HAPOfflineFlag = 0x200
-	HAPEnumUp      = 0x101
-	HAPEnumReady   = 0x102
-	HAPEnumDown    = 0x204
-	HAPEnumDrain   = 0x208
-	HAPEnumFail    = 0x210
-	HAPEnumMaint   = 0x220
-	HAPEnumStopped = 0x240
+	HAPEnumNone        = 0x000
+	HAPMaskCommand     = 0x0FF
+	HAPMaskAll         = 0xFFF
+	HAPOnlineFlag      = 0x100
+	HAPOfflineFlag     = 0x200
+	HAPEnumUp          = 0x101
+	HAPEnumReady       = 0x102
+	HAPEnumDown        = 0x204
+	HAPEnumDrain       = 0x208
+	HAPEnumFail        = 0x210
+	HAPEnumMaintenance = 0x220
+	HAPEnumStopped     = 0x240
 
 	// As per the previous Loadbalancer.org Feedback Agent, the
 	// default online command is "up ready" and the default
@@ -156,50 +162,74 @@ const (
 
 	// Strings for sending composite feedback commands to HAProxy.
 
-	HAPCommandNone    = ""
-	HAPCommandUp      = "up"
-	HAPCommandReady   = "ready"
-	HAPCommandDown    = "down"
-	HAPCommandDrain   = "drain"
-	HAPCommandFail    = "fail"
-	HAPCommandMaint   = "maint"
-	HAPCommandStopped = "stopped"
+	HAPCommandNone        = ""
+	HAPCommandUp          = "up"
+	HAPCommandReady       = "ready"
+	HAPCommandDown        = "down"
+	HAPCommandDrain       = "drain"
+	HAPCommandFail        = "fail"
+	HAPCommandMaintenance = "maint"
+	HAPCommandStopped     = "stopped"
 
 	// JSON configuration settings for group options (default, none).
 
 	HAPConfigDefault = "default"
 	HAPConfigNone    = "none"
-
-	// Default interval for which to send HAProxy commands after a
-	// state change. This has been defined as 10 seconds as per MT,
-	// but may likely need to be increased by modifying the
-	// configuration for many use cases. This is presumably intended
-	// to be the most conservative value.
-
-	DefaultCommandInterval = 10
 )
+
+var commandToEnum = map[string]int{
+	HAPCommandNone:        HAPEnumNone,
+	HAPCommandUp:          HAPEnumUp,
+	HAPCommandReady:       HAPEnumReady,
+	HAPCommandDown:        HAPEnumDown,
+	HAPCommandDrain:       HAPEnumDrain,
+	HAPCommandFail:        HAPEnumFail,
+	HAPCommandMaintenance: HAPEnumMaintenance,
+	HAPCommandStopped:     HAPEnumStopped,
+}
+
+var enumToCommand = map[int]string{
+	HAPEnumNone:        HAPCommandNone,
+	HAPEnumUp:          HAPCommandUp,
+	HAPEnumReady:       HAPCommandReady,
+	HAPEnumDown:        HAPCommandDown,
+	HAPEnumDrain:       HAPCommandDrain,
+	HAPEnumFail:        HAPCommandFail,
+	HAPEnumMaintenance: HAPCommandMaintenance,
+	HAPEnumStopped:     HAPCommandStopped,
+}
+var commandEnumOrder = []int{
+	HAPEnumNone,
+	HAPEnumUp,
+	HAPEnumReady,
+	HAPEnumDown,
+	HAPEnumDrain,
+	HAPEnumFail,
+	HAPEnumMaintenance,
+	HAPEnumStopped,
+}
 
 // NewResponder creates a new FeedbackResponder object. This constructor must
 // be used when creating a new responder object.
 func NewResponder(name string, sources map[string]*FeedbackSource,
 	protocol string, ip string, port string, commands string,
-	enableThreshold bool, threshold int, agent *FeedbackAgent) (
+	thresholdMode string, threshold int, agent *FeedbackAgent) (
 	result *FeedbackResponder, err error) {
 	if sources == nil {
 		sources = make(map[string]*FeedbackSource)
 	}
 	// -- Create a new responder containing the base settings.
 	fbr := &FeedbackResponder{
-		ProtocolName:     protocol,
-		ListenIPAddress:  ip,
-		ListenPort:       port,
-		FeedbackSources:  sources,
-		ResponderName:    name,
-		ParentAgent:      agent,
-		HAProxyCommands:  commands,
-		ThresholdEnabled: enableThreshold,
-		ThresholdScore:   threshold,
-		CommandInterval:  DefaultCommandInterval,
+		ProtocolName:      protocol,
+		ListenIPAddress:   ip,
+		ListenPort:        port,
+		FeedbackSources:   sources,
+		ResponderName:     name,
+		ParentAgent:       agent,
+		HAProxyCommands:   commands,
+		ThresholdModeName: thresholdMode,
+		ThresholdScore:    threshold,
+		CommandInterval:   DefaultCommandInterval,
 	}
 	fbr.mutex = &sync.Mutex{}
 	err = fbr.Initialise()
@@ -207,42 +237,6 @@ func NewResponder(name string, sources map[string]*FeedbackSource,
 		result = fbr
 	}
 	return
-}
-
-// SetHAPCommandMaps creates the maps and order array for the
-// HAProxy command state management functions. These cannot be set
-// as constants in Go, unfortunately.
-func (fbr *FeedbackResponder) SetHAPCommandMaps() {
-	fbr.commandToEnum = map[string]int{
-		HAPCommandNone:    HAPEnumNone,
-		HAPCommandUp:      HAPEnumUp,
-		HAPCommandReady:   HAPEnumReady,
-		HAPCommandDown:    HAPEnumDown,
-		HAPCommandDrain:   HAPEnumDrain,
-		HAPCommandFail:    HAPEnumFail,
-		HAPCommandMaint:   HAPEnumMaint,
-		HAPCommandStopped: HAPEnumStopped,
-	}
-	fbr.enumToCommand = map[int]string{
-		HAPEnumNone:    HAPCommandNone,
-		HAPEnumUp:      HAPCommandUp,
-		HAPEnumReady:   HAPCommandReady,
-		HAPEnumDown:    HAPCommandDown,
-		HAPEnumDrain:   HAPCommandDrain,
-		HAPEnumFail:    HAPCommandFail,
-		HAPEnumMaint:   HAPCommandMaint,
-		HAPEnumStopped: HAPCommandStopped,
-	}
-	fbr.commandEnumOrder = []int{
-		HAPEnumNone,
-		HAPEnumUp,
-		HAPEnumReady,
-		HAPEnumDown,
-		HAPEnumDrain,
-		HAPEnumFail,
-		HAPEnumMaint,
-		HAPEnumStopped,
-	}
 }
 
 // Initialise sets up this FeedbackResponder and configures defaults.
@@ -253,7 +247,6 @@ func (fbr *FeedbackResponder) Initialise() (err error) {
 	}
 	fbr.mutex.Lock()
 	defer fbr.mutex.Unlock()
-	fbr.SetHAPCommandMaps()
 	if fbr.FeedbackSources == nil {
 		fbr.FeedbackSources = make(map[string]*FeedbackSource)
 	}
@@ -283,23 +276,21 @@ func (fbr *FeedbackResponder) Initialise() (err error) {
 	if fbr.ProtocolName == ProtocolSecureAPI || len(fbr.FeedbackSources) < 1 {
 		return
 	}
-	commands := fbr.HAProxyCommands
-	interval := fbr.CommandInterval
-	// This requires unlocking the mutex, and then relocking due to our defer.
+	// This requires unlocking the mutex, and then locking again due to our defer.
 	fbr.mutex.Unlock()
 	err = fbr.initialiseSources()
 	if err != nil {
 		return
 	}
-	err = fbr.ConfigureCommands(commands, true, false)
+	err = fbr.ConfigureCommands(fbr.HAProxyCommands, true, false)
 	if err != nil {
 		return
 	}
-	err = fbr.ConfigureInterval(interval)
+	err = fbr.ConfigureInterval(fbr.CommandInterval)
 	if err != nil {
 		return
 	}
-	err = fbr.SetThresholdModeFromString(fbr.ThresholdModeName)
+	err = fbr.ConfigureThresholdMode(fbr.ThresholdModeName)
 	if err != nil {
 		return
 	}
@@ -330,7 +321,13 @@ func (fbr *FeedbackResponder) ConfigureInterval(interval int) (err error) {
 				"interval; use '0' to always send (interval disabled).",
 		)
 	}
-	fbr.setInterval(interval)
+	fbr.mutex.Lock()
+	defer fbr.mutex.Unlock()
+	if interval < 1 {
+		fbr.CommandInterval = 0
+	} else {
+		fbr.CommandInterval = interval
+	}
 	return
 }
 
@@ -511,9 +508,10 @@ func (fbr *FeedbackResponder) DeleteFeedbackSource(name string) (err error) {
 	return
 }
 
-// setHAPCommandMask configures the HAProxy command parameters for this FeedbackResponder,
-// based on whether this should replace any commands currently set and if
-// the list of commands provided should be removed rather than added.
+// setHAPCommandMask configures the HAProxy command parameters for this
+// FeedbackResponder, based on whether this should replace any commands
+// currently set and if the list of commands provided should be removed
+// rather than added.
 func (fbr *FeedbackResponder) setHAPCommandMask(commands string,
 	replace bool, unset bool) (err error) {
 	fbr.mutex.Lock()
@@ -535,7 +533,7 @@ func (fbr *FeedbackResponder) setHAPCommandMask(commands string,
 		// Look up each command and translate into a mask (if valid).
 		split := strings.Split(trimmed, " ")
 		for _, command := range split {
-			enum, exists := fbr.commandToEnum[command]
+			enum, exists := commandToEnum[command]
 			if !exists {
 				err = errors.New(
 					"invalid HAProxy feedback command: '" +
@@ -757,31 +755,10 @@ func (fbr *FeedbackResponder) ConfigureThresholdValue(threshold int) (err error)
 		err = errors.New(fbr.getLogHead() + "invalid threshold; cannot be negative")
 		return
 	}
-	fbr.setThreshold(threshold)
-	return
-}
-
-func (fbr *FeedbackResponder) ConfigureThresholdEnabled(enabled bool) (err error) {
-	fbr.mutex.Lock()
-	defer fbr.mutex.Unlock()
-	fbr.ThresholdEnabled = enabled
-	return
-}
-
-func (fbr *FeedbackResponder) setThreshold(threshold int) {
 	fbr.mutex.Lock()
 	defer fbr.mutex.Unlock()
 	fbr.ThresholdScore = threshold
-}
-
-func (fbr *FeedbackResponder) setInterval(interval int) {
-	fbr.mutex.Lock()
-	defer fbr.mutex.Unlock()
-	if interval < 1 {
-		fbr.CommandInterval = 0
-	} else {
-		fbr.CommandInterval = interval
-	}
+	return
 }
 
 // GetAvailability provides a corrected version of the algorithm mentioned
@@ -789,18 +766,18 @@ func (fbr *FeedbackResponder) setInterval(interval int) {
 // calculates an availability score against a maximum value specified for a
 // given metric, adjusted by a relative significance score (scaled proportion
 // of the total significance for all monitors attached to this responder).
-func (fbr *FeedbackResponder) GetAvailability() (availability int, withinThreshold bool) {
-	// Calculate the overall totalLoad across all monitors by scaling
+func (fbr *FeedbackResponder) GetAvailability() (availability int, onlineState bool) {
+	// Calculate the overall total load across all monitors by scaling
 	// against their maximum value, and then their relative significance.
 	// Formula:
 	//       s = 100 - ((v_cur / v_max) * sig_rel * 100)
 	// where:
-	//       s = totalLoad availability score for this monitor
+	//       s = total load score for this monitor
 	//       v_cur = current raw value returned by the stats model
 	//       v_max = maximum specified ceiling for the source
 	//       sig_rel = fraction of all significances set for this monitor
 	//
-	withinThreshold = true
+	onlineState = true
 	totalLoad := 0
 	for _, source := range fbr.FeedbackSources {
 		// Skip any monitors with no significance.
@@ -808,19 +785,29 @@ func (fbr *FeedbackResponder) GetAvailability() (availability int, withinThresho
 			continue
 		}
 		sourceLoad := getSourceLoad(source)
-		thresholdReached := fbr.thresholdCheck("source '"+source.Monitor.Name+"'",
+		sourceThresholdReached := fbr.thresholdCheck("source '"+source.Monitor.Name+"'",
 			int(source.Threshold), sourceLoad)
-		if thresholdReached {
-			withinThreshold = false
+		if sourceThresholdReached && fbr.isSourceThresholdEnabled() {
+			onlineState = false
 		}
 		totalLoad += int(float64(sourceLoad) * source.RelativeSignificance)
 	}
-	thresholdReached := fbr.thresholdCheck("overall", fbr.ThresholdScore, totalLoad)
-	if thresholdReached {
-		withinThreshold = false
+	overallThresholdReached := fbr.thresholdCheck("overall", fbr.ThresholdScore, totalLoad)
+	if overallThresholdReached && fbr.isOverallThresholdEnabled() {
+		onlineState = false
 	}
 	availability = 100 - totalLoad
 	return
+}
+
+func (fbr *FeedbackResponder) isSourceThresholdEnabled() bool {
+	return fbr.thresholdMode == ThresholdModeAny ||
+		fbr.thresholdMode == ThresholdModeSource
+}
+
+func (fbr *FeedbackResponder) isOverallThresholdEnabled() bool {
+	return fbr.thresholdMode == ThresholdModeAny ||
+		fbr.thresholdMode == ThresholdModeOverall
 }
 
 func getSourceLoad(source *FeedbackSource) (load int) {
@@ -841,7 +828,8 @@ func getSourceLoad(source *FeedbackSource) (load int) {
 	return
 }
 
-func (fbr *FeedbackResponder) thresholdCheck(name string, threshold int, load int) bool {
+func (fbr *FeedbackResponder) thresholdCheck(name string, threshold int,
+	load int) bool {
 	if load >= threshold {
 		logrus.Info(fbr.getLogHead() + ": " + name + ": load (" +
 			strconv.Itoa(load) + "%) reached max (" +
@@ -866,13 +854,14 @@ func (fbr *FeedbackResponder) HandleFeedback() (feedback string) {
 	// We do so if the threshold is enabled, the current threshold state
 	// has changed, and we aren't in a forced command that hasn't yet
 	// expired.
-	if (fbr.ThresholdEnabled && (thresholdState != fbr.onlineState)) &&
+	if ((fbr.thresholdMode != ThresholdModeNone) &&
+		(thresholdState != fbr.onlineState)) &&
 		(!fbr.forceCommandState || (timestamp.After(fbr.stateExpiry) &&
 			(fbr.onlineState || fbr.EnableOfflineInterval))) {
 		// SetHACommandState() is used by external code, so it
 		// locks and unlocks the responder mutex itself. This means
 		// we need to release the mutex first before calling it
-		// and relock for the final defer.
+		// and locking again for the final defer.
 		fbr.mutex.Unlock()
 		fbr.SetHAPCommandState(thresholdState, false, HAPEnumNone)
 		fbr.mutex.Lock()
@@ -901,7 +890,8 @@ func (fbr *FeedbackResponder) HandleFeedback() (feedback string) {
 
 // GetResponse gets a string response from this FeedbackResponder, which will depend
 // on its configuration and what it is supposed to do.
-func (fbr *FeedbackResponder) GetResponse(request string) (response string, quitAfter bool) {
+func (fbr *FeedbackResponder) GetResponse(request string) (response string,
+	quitAfter bool) {
 	if !PanicDebug {
 		defer func() {
 			err := recover()
@@ -936,23 +926,23 @@ func (fbr *FeedbackResponder) GenerateCommandString(online bool, currentMask int
 // enums that don't have any bits matching the filter.
 func (fbr *FeedbackResponder) CommandMaskToString(commandMask int, enumMask int,
 	filter int) (commands string) {
-	for _, enum := range fbr.commandEnumOrder {
+	for _, enum := range commandEnumOrder {
 		// Add this command if this enum is for the current state
 		// and currently enabled within the configured command mask.
 		if (enum&filter > 0) && ((enum & commandMask) == (enum & enumMask)) {
 			if commands != "" {
 				commands += " "
 			}
-			commands += fbr.enumToCommand[enum]
+			commands += enumToCommand[enum]
 		}
 	}
 	return
 }
 
-// SetThresholdModeFromString sets the current threshold name and string
+// ConfigureThresholdMode sets the current threshold name and string
 // from a specified string value, returning an error (and leaving the mode
 // unchanged) if the specified string is invalid.
-func (fbr *FeedbackResponder) SetThresholdModeFromString(str string) (err error) {
+func (fbr *FeedbackResponder) ConfigureThresholdMode(str string) (err error) {
 	str = strings.ToLower(strings.TrimSpace(str))
 	if str == "" {
 		// Set to default if no threshold string is currently configured.
