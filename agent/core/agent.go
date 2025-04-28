@@ -161,24 +161,6 @@ func (agent *FeedbackAgent) EventHandleLoop() {
 	}
 }
 
-func (agent *FeedbackAgent) EventHandleLoopNew() {
-	for {
-		select {
-		case msg := <-agent.systemSignals:
-			if msg == agent.restartSignal {
-				err := agent.RestartAllServices()
-				if err != nil {
-					break
-				}
-			} else {
-				break
-			}
-		default:
-			// Delay timer goes here
-		}
-	}
-}
-
 // SelfSignalQuit sends the agent event loop a quit signal.
 func (agent *FeedbackAgent) SelfSignalQuit() {
 	agent.systemSignals <- agent.quitSignal
