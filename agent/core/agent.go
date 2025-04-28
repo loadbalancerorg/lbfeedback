@@ -37,6 +37,11 @@ import (
 // set of [SystemMonitor] and [FeedbackResponder] objects, and provides the
 // general utility functions for the project.
 type FeedbackAgent struct {
+	// Config masthead fields. These were absent prior to v5.3.6 and
+	// must therefore have the omitempty flag set for the JSON.
+	ServiceName string `json:"service-name"`
+	Version     string `json:"version"`
+
 	// Agent configuration fields
 	LogDir     string                        `json:"log-dir"`
 	APIKey     string                        `json:"api-key"`
@@ -60,7 +65,10 @@ func LaunchAgentService() (exitStatus int) {
 	fmt.Println(ShellBanner)
 	// $$ TO DO: Pass errors from agent.Run() to show success/
 	// failure on the shell (not just in the logs).
-	agent := FeedbackAgent{}
+	agent := FeedbackAgent{
+		ServiceName: AppIdentifier,
+		Version:     VersionString,
+	}
 	exitStatus = agent.Run()
 	return
 }
@@ -396,7 +404,8 @@ func (agent *FeedbackAgent) LoadOrCreateConfig() (err error) {
 		// Clear the error as handled if we succeeded despite an error
 		// occurring during the config save.
 		if success {
-			logrus.Info("Configuration file written successfully to '" + fullPath + "'.")
+			logrus.Info("Configuration file written successfully to '" +
+				fullPath + "'.")
 			err = nil
 		}
 	}
@@ -468,7 +477,7 @@ func (agent *FeedbackAgent) SaveAgentConfig(dirPath string, fileName string) (
 		file, err = os.Create(fullPath)
 		if err != nil {
 			err = errors.New(
-				"Failed to open file, and could " +
+				"Failed to open file for writing, and could " +
 					"not create it: " + fullPath,
 			)
 			return
@@ -568,17 +577,19 @@ func (agent *FeedbackAgent) SetDefaultServiceConfig() (err error) {
 		"cpu": {
 			Significance: 1.0,
 			MaxValue:     100,
-			Threshold:    100,
+			Threshold:    0,
 		},
 	}
 	defaultResponder := FeedbackResponder{
-		ResponderName:   "default",
-		ProtocolName:    ProtocolTCP,
-		ListenIPAddress: "*",
-		ListenPort:      "3333",
-		HAProxyCommands: HAPConfigDefault,
-		FeedbackSources: defaultSources,
-		CommandInterval: DefaultCommandInterval,
+		ResponderName:     "default",
+		ProtocolName:      ProtocolTCP,
+		ListenIPAddress:   "*",
+		ListenPort:        "3333",
+		HAProxyCommands:   HAPConfigDefault,
+		FeedbackSources:   defaultSources,
+		CommandInterval:   DefaultCommandInterval,
+		ThresholdScore:    0,
+		ThresholdModeName: ThresholdStringAny,
 	}
 	err = agent.AddResponderObject(&defaultResponder)
 	if err != nil {

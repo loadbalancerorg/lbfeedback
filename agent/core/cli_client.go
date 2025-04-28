@@ -97,10 +97,10 @@ func RunClientCLI() (status int) {
 		} else {
 			println(
 				"JSON reply from the Feedback Agent:\n" +
-					string(reformatted),
+					string(reformatted) + "\n",
 			)
 			if responseObject.Message != "" {
-				println("\n" + responseObject.Message)
+				println(responseObject.Message + "\n")
 			}
 		}
 	}
@@ -131,8 +131,8 @@ func CLIHandleAgentAction(actionName string, actionType string, argv []string) (
 	argListenPort := apiArgs.String("port", "", "")
 	argRequestTimeout := apiArgs.Int("request-timeout", 0, "")
 	argResponseTimeout := apiArgs.Int("response-timeout", 0, "")
-	argThresholdString := apiArgs.String("threshold-string", "", "")
-	argResponderThreshold := apiArgs.Int("threshold-max", 0, "")
+	argThresholdString := apiArgs.String("threshold-mode", "", "")
+	argResponderThreshold := apiArgs.Int("threshold-max", -1, "")
 	argCommandInterval := apiArgs.Int("command-interval", -1, "")
 
 	// Fields for monitor and source API requests.
@@ -164,11 +164,9 @@ func CLIHandleAgentAction(actionName string, actionType string, argv []string) (
 
 	// Process parameters where required.
 	argCommandInterval = PointerHandleIntValue(argCommandInterval)
+	argResponderThreshold = PointerHandleIntValue(argResponderThreshold)
 	argCommandList = PointerHandleStringValue(argCommandList)
 	argSourceMaxValue = PointerHandleInt64Value(argSourceMaxValue)
-	// Pass bool parameters through a handler to get around some annoying
-	// bugs in the go flags package which can cause them not to get parsed
-	// correctly.
 	argShapingEnabled := PointerHandleBoolString(argShapingEnabledString)
 
 	// Set fields into the new API request; the API will be responsible

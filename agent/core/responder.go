@@ -52,7 +52,7 @@ type FeedbackResponder struct {
 	ResponseTimeout       time.Duration              `json:"response-timeout,omitempty"`
 	HAProxyCommands       string                     `json:"haproxy-commands,omitempty"`
 	CommandInterval       int                        `json:"command-interval,omitempty"`
-	ThresholdScore        int                        `json:"threshold-score,omitempty"`
+	ThresholdScore        int                        `json:"global-threshold,omitempty"`
 	ThresholdModeName     string                     `json:"threshold-mode,omitempty"`
 	EnableOfflineInterval bool                       `json:"enable-offline-interval,omitempty"`
 
@@ -84,7 +84,7 @@ type FeedbackResponder struct {
 	forceCommandState bool
 
 	// Currently configured threshold mode (from string).
-	thresholdMode ThresholdMode
+	thresholdModeEnum ThresholdMode
 }
 
 // -- Constants for threshold functionality.
@@ -92,19 +92,21 @@ type FeedbackResponder struct {
 type ThresholdMode int
 
 const (
-	ThresholdModeNone ThresholdMode = iota
-	ThresholdModeAny
+	ThresholdModeAny ThresholdMode = iota
+	ThresholdModeNone
 	ThresholdModeOverall
 	ThresholdModeSource
 )
 const (
 	ThresholdStringAny     = "any"
+	ThresholdStringNone    = "none"
 	ThresholdStringOverall = "overall"
-	ThresholdStringMetric  = "metrics"
+	ThresholdStringMetric  = "source"
 )
 
 var thresholdStringToMode = map[string]ThresholdMode{
 	ThresholdStringAny:     ThresholdModeAny,
+	ThresholdStringNone:    ThresholdModeNone,
 	ThresholdStringOverall: ThresholdModeOverall,
 	ThresholdStringMetric:  ThresholdModeSource,
 }
@@ -114,7 +116,7 @@ var thresholdStringToMode = map[string]ThresholdMode{
 type FeedbackSource struct {
 	Significance         float64        `json:"significance"`
 	MaxValue             int64          `json:"max-value"`
-	Threshold            int64          `json:"threshold"`
+	Threshold            int64          `json:"source-threshold,omitempty"`
 	Monitor              *SystemMonitor `json:"-"`
 	RelativeSignificance float64        `json:"-"`
 }
@@ -431,8 +433,8 @@ func (fbr *FeedbackResponder) AddFeedbackSource(name string,
 	if maxValue != nil {
 		metricMax = *maxValue
 	}
-	// Default threshold value is 100.
-	thresholdValue := 100
+	// Default threshold value is 0 (ignore).
+	thresholdValue := 0
 	if threshold != nil {
 		thresholdValue = *threshold
 	}
@@ -801,13 +803,13 @@ func (fbr *FeedbackResponder) GetAvailability() (availability int, onlineState b
 }
 
 func (fbr *FeedbackResponder) isSourceThresholdEnabled() bool {
-	return fbr.thresholdMode == ThresholdModeAny ||
-		fbr.thresholdMode == ThresholdModeSource
+	return fbr.thresholdModeEnum == ThresholdModeAny ||
+		fbr.thresholdModeEnum == ThresholdModeSource
 }
 
 func (fbr *FeedbackResponder) isOverallThresholdEnabled() bool {
-	return fbr.thresholdMode == ThresholdModeAny ||
-		fbr.thresholdMode == ThresholdModeOverall
+	return fbr.thresholdModeEnum == ThresholdModeAny ||
+		fbr.thresholdModeEnum == ThresholdModeOverall
 }
 
 func getSourceLoad(source *FeedbackSource) (load int) {
@@ -830,7 +832,7 @@ func getSourceLoad(source *FeedbackSource) (load int) {
 
 func (fbr *FeedbackResponder) thresholdCheck(name string, threshold int,
 	load int) bool {
-	if load >= threshold {
+	if threshold > 0 && load >= threshold {
 		logrus.Info(fbr.getLogHead() + ": " + name + ": load (" +
 			strconv.Itoa(load) + "%) reached max (" +
 			strconv.Itoa(threshold) + "%)")
@@ -854,7 +856,7 @@ func (fbr *FeedbackResponder) HandleFeedback() (feedback string) {
 	// We do so if the threshold is enabled, the current threshold state
 	// has changed, and we aren't in a forced command that hasn't yet
 	// expired.
-	if ((fbr.thresholdMode != ThresholdModeNone) &&
+	if ((fbr.thresholdModeEnum != ThresholdModeNone) &&
 		(thresholdState != fbr.onlineState)) &&
 		(!fbr.forceCommandState || (timestamp.After(fbr.stateExpiry) &&
 			(fbr.onlineState || fbr.EnableOfflineInterval))) {
@@ -942,18 +944,24 @@ func (fbr *FeedbackResponder) CommandMaskToString(commandMask int, enumMask int,
 // ConfigureThresholdMode sets the current threshold name and string
 // from a specified string value, returning an error (and leaving the mode
 // unchanged) if the specified string is invalid.
-func (fbr *FeedbackResponder) ConfigureThresholdMode(str string) (err error) {
-	str = strings.ToLower(strings.TrimSpace(str))
-	if str == "" {
+func (fbr *FeedbackResponder) ConfigureThresholdMode(name string) (err error) {
+	name = strings.ToLower(strings.TrimSpace(name))
+	if name == "" {
 		// Set to default if no threshold string is currently configured.
-		str = ThresholdStringAny
+		name = ThresholdStringNone
 	}
-	mode, exists := thresholdStringToMode[str]
-	if !exists {
-		err = errors.New("threshold mode '" + str + "' is invalid")
+	if (fbr.ProtocolName == ProtocolSecureAPI || fbr.ProtocolName == ProtocolLegacyAPI) &&
+		name != ThresholdStringNone {
+		err = errors.New("no threshold mode other than '" + ThresholdStringNone +
+			"' is invalid for an API responder")
 		return
 	}
-	fbr.thresholdMode = mode
-	fbr.ThresholdModeName = str
+	mode, exists := thresholdStringToMode[name]
+	if !exists {
+		err = errors.New("threshold mode '" + name + "' is invalid")
+		return
+	}
+	fbr.thresholdModeEnum = mode
+	fbr.ThresholdModeName = name
 	return
 }

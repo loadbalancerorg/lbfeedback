@@ -42,7 +42,7 @@ func (agent *FeedbackAgent) ReceiveAPIRequest(requestJSON string) (
 	// Marshal the response object into the JSON response.
 	output, err := json.MarshalIndent(response, "", "    ")
 	if err == nil {
-		responseJSON = string(output)
+		responseJSON = string(output) + "\n"
 	} else {
 		logrus.Error("Failed to marshal JSON API response.")
 	}
@@ -713,19 +713,16 @@ func (agent *FeedbackAgent) APIHandleSetThreshold(request *APIRequest) (
 	}
 	changed := false
 	// Process a change to the threshold score, if provided.
-	if request.ThresholdScore != nil && (*request.ThresholdScore != res.ThresholdScore) {
+	if request.ThresholdScore != nil {
 		err = res.ConfigureThresholdValue(*request.ThresholdScore)
 		if err != nil {
 			return
 		}
-		// Enable the threshold by default if a valid value was specified. This
-		// will be handled in the next block.
-		*request.ThresholdMode = ThresholdStringAny
 		changed = true
 	}
 	// Process a change to whether the threshold is enabled, if provided
 	// or triggered by the above code.
-	if request.ThresholdMode != nil && (*request.ThresholdMode != res.ThresholdModeName) {
+	if request.ThresholdMode != nil {
 		err = res.ConfigureThresholdMode(*request.ThresholdMode)
 		if err != nil {
 			return
