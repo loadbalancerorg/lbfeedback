@@ -146,6 +146,7 @@ func CLIHandleAgentAction(actionName string, actionType string, argv []string) (
 	argSampleTime := apiArgs.String("sampling-ms", "", "")
 	argScriptName := apiArgs.String("script-name", "", "")
 	argDiskPath := apiArgs.String("disk-path", "", "")
+	argShapingEnabledString := apiArgs.String("shaping-enabled", "", "")
 
 	// $$ TO DO: Define help for actions.
 	err = apiArgs.Parse(argv)
@@ -165,6 +166,10 @@ func CLIHandleAgentAction(actionName string, actionType string, argv []string) (
 	argCommandInterval = PointerHandleIntValue(argCommandInterval)
 	argCommandList = PointerHandleStringValue(argCommandList)
 	argSourceMaxValue = PointerHandleInt64Value(argSourceMaxValue)
+	// Pass bool parameters through a handler to get around some annoying
+	// bugs in the go flags package which can cause them not to get parsed
+	// correctly.
+	argShapingEnabled := PointerHandleBoolString(argShapingEnabledString)
 
 	// Set fields into the new API request; the API will be responsible
 	// for determining the validity of options for a request.
@@ -191,6 +196,7 @@ func CLIHandleAgentAction(actionName string, actionType string, argv []string) (
 			ParamKeyScriptName: *argScriptName,
 			ParamKeyDiskPath:   *argDiskPath,
 		},
+		ShapingEnabled: argShapingEnabled,
 	}
 
 	// Workaround for * being expanded into a glob in bash

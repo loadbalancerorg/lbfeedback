@@ -1,5 +1,4 @@
 //go:build linux || freebsd || netbsd || openbsd || darwin
-// +build linux freebsd netbsd openbsd darwin
 
 // platform_posix.go
 // Platform-Specific Code - POSIX Operating Systems
@@ -42,6 +41,7 @@ const (
 	DefaultFilePermissions fs.FileMode = 0644
 
 	// Platform specific paths
+
 	DefaultConfigDir = "/opt/lbfeedback"
 	DefaultLogDir    = "/var/log/lbfeedback"
 
@@ -88,7 +88,7 @@ func PlatformOpenLogFile(fullPath string) (file *os.File, err error) {
 	return
 }
 
-func PlatformGetConnnectionCount() (val int, err error) {
+func PlatformGetConnectionCount() (val int, err error) {
 	connList, err := net.Connections("all")
 	if err != nil {
 		return

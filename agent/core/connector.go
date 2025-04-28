@@ -94,11 +94,17 @@ func (pc *TCPConnector) Listen(fbr *FeedbackResponder) (err error) {
 
 func (pc *TCPConnector) handleRequest(c net.Conn) {
 	response, _ := pc.responder.GetResponse("")
-	fmt.Fprintf(c, "%s", response)
+	_, err := fmt.Fprintf(c, "%s", response)
+	if err != nil {
+		logrus.Error("Error responding to request: " + err.Error())
+	}
 	// Always force-close the connection after returning the feedback value.
 	// This is to cope with an issue with ldirectord which will hang until the
 	// connection is closed from the server
-	c.Close()
+	err = c.Close()
+	if err != nil {
+		logrus.Error("Error closing TCP connection: " + err.Error())
+	}
 }
 
 func (pc *TCPConnector) Close() (err error) {

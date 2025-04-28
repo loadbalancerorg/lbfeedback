@@ -42,8 +42,9 @@ type StatisticsModel struct {
 	XLastValue float64 `json:"-"`
 	// Count of observations in the current state (n).
 	XCount uint64 `json:"-"`
-	// The significance-adjusted mean of the observations.
-	XAdjustedMean float64 `json:"-"`
+	// The significance-adjusted mean of the observations,
+	// where shaping is enabled.
+	XReportedLoad float64 `json:"-"`
 	// Standard deviation (sigma_x) of the set, cumulatively.
 	XStdDev float64 `json:"-"`
 	// Z-score of the last observation (XValue)
@@ -74,8 +75,8 @@ type StatisticsModel struct {
 	ZPredictionInterval uint64 `json:"z-interval"`
 	// Was this model recentred during the last observation?
 	Recentred bool `json:"-"`
-	// Is statistics calculation disabled (for direct mode)?
-	StatsDisabled bool `json:"-"`
+	// Is statistics-based shaping enabled?
+	ShapingEnabled bool `json:"-"`
 	// Have the model parameters been set, so we don't force to defaults?
 	ParamsSet bool `json:"-"`
 	// The last weight score computed by the model.
@@ -90,13 +91,13 @@ type StatisticsModel struct {
 // during normal model operation by a caller causing nonsensical output.
 
 const (
-	DefaultXCountLimit         = 0x100000000
+	DefaultXCountLimit         = 0x10000000
 	DefaultZMeanThreshold      = 1.0
 	DefaultZPredictionInterval = 5
 )
 
-// Sets the default model parameters, and also sets the flag
-// to tell NewValue() that a set of parameters has been
+// SetDefaultParams sets the default model parameters, and also sets
+// the flag to tell NewValue that a set of parameters has been
 // configured, which will thereafter stop it from calling again.
 func (model *StatisticsModel) SetDefaultParams() {
 	model.XCountLimit = DefaultXCountLimit
@@ -105,12 +106,12 @@ func (model *StatisticsModel) SetDefaultParams() {
 	model.ParamsSet = true
 }
 
-// Resets to a zero-state for this statistics model without clearing
-// the configuration parameters.
+// ClearModel resets to a zero-state for this statistics model
+// without clearing the configuration parameters.
 func (model *StatisticsModel) ClearModel() {
 	model.XLastValue = 0
 	model.XCount = 0
-	model.XAdjustedMean = 0
+	model.XReportedLoad = 0
 	model.XStdDev = 0
 	model.ZScoreValue = 0
 	model.XSum = 0
@@ -122,37 +123,37 @@ func (model *StatisticsModel) ClearModel() {
 	model.ZSampleCount = 0
 }
 
-// Observes a new value in the set into the statistics model
+// NewValue observes a new value in the set into the statistics model
 // by adding it into the sum values and recalculating the Z-scores,
 // min-max values, mean and standard deviation.
 func (model *StatisticsModel) NewValue(value float64) {
 	if !model.ParamsSet {
 		model.SetDefaultParams()
 	}
-	if !model.StatsDisabled {
+	// If the observation count (n) has exceeded the defined limit,
+	// recentre the statistics model around the current mean.
+	if model.XCount+1 > model.XCountLimit {
+		model.RecentreModel()
+	} else {
 		model.Recentred = false
-		// If the observation count (n) has exceeded the defined limit,
-		// recentre the model around the current mean.
-		if model.XCount+1 > model.XCountLimit {
-			model.RecentreModel()
-		} else {
-			// Recalculate statistics within the model, in the right order.
-			model.addXValue(value)
-			model.updateMinMax()
-			model.recalcMean()
-			model.recalcStdDev()
-			model.recalcZScores()
-		}
-		// Perform the Z-window operations and if necessary, recentre model.
+		// Recalculate statistics within the model, in the right order.
+		model.addXValue(value)
+		model.updateMinMax()
+		model.recalculateMean()
+		model.recalculateStdDev()
+		model.recalculateZScores()
+	}
+	if model.ShapingEnabled {
+		// Perform the Z-window translation algorithm.
 		model.handleZWindow()
 	} else {
-		model.XAdjustedMean = value
+		// Otherwise, if shaping is disabled, the adjusted mean is the last value.
+		model.XReportedLoad = value
 	}
-	// Compute the value from the current data
 	model.setResult()
 }
 
-// Takes a new value and adds it to the appropriate sum fields
+// addXValue takes a new value and adds it to the appropriate sum fields
 // as well as the value field (the observation x) used by the
 // other functions.
 func (model *StatisticsModel) addXValue(value float64) {
@@ -162,17 +163,17 @@ func (model *StatisticsModel) addXValue(value float64) {
 	model.XLastValue = value
 }
 
-// Updates the Z-score parameters based on the current state.
-// Formula:
-//
-// z = (x - mu) / sigma
-//
-// where z equals the number of standard deviations from the mean, x
-// is the most recent observation value, mu is the current mean of the
-// population and sigma is the sample standard deviation.
-func (model *StatisticsModel) recalcZScores() {
+// recalculateZScores updates the Z-score parameters based on the current state.
+func (model *StatisticsModel) recalculateZScores() {
+	// Formula:
+	//
+	// z = (x - mu) / sigma
+	//
+	// where z equals the number of standard deviations from the mean, x
+	// is the most recent observation value, mu is the current mean of the
+	// population and sigma is the sample standard deviation.
 	if math.Abs(model.XStdDev) > 0 {
-		model.ZScoreValue = (model.XLastValue - model.XAdjustedMean) /
+		model.ZScoreValue = (model.XLastValue - model.XReportedLoad) /
 			model.XStdDev
 	} else {
 		model.ZScoreValue = 0
@@ -182,8 +183,8 @@ func (model *StatisticsModel) recalcZScores() {
 	model.ZScoreMean = model.ZScoreSum / float64(model.ZSampleCount)
 }
 
-// Updates the min/max values if the most recent observation has
-// required these to change.
+// updateMinMax updates the min/max values if the most recent
+// observation has required these to change.
 func (model *StatisticsModel) updateMinMax() {
 	// If we haven't got at least 2 values yet (e.g. 1 or 0)
 	// then the min and max are the last value seen.
@@ -201,39 +202,40 @@ func (model *StatisticsModel) updateMinMax() {
 	}
 }
 
-// Updates the mean in the current state.
-// Formula:
-//
-//	mu_n = s1 / n
-//
-// where mu_n is the cumulative mean, s1 is the sum of observations,
-// and n is the sample count of the set.
-func (model *StatisticsModel) recalcMean() {
-	model.XAdjustedMean = model.XSum / float64(model.XCount)
+// recalculateMean computes the mean in the current state
+// using the cumulative method.
+func (model *StatisticsModel) recalculateMean() {
+	// Formula:
+	//
+	//	mu_n = s1 / n
+	//
+	// where mu_n is the cumulative mean, s1 is the sum of observations,
+	// and n is the sample count of the set.
+	model.XReportedLoad = model.XSum / float64(model.XCount)
 }
 
-// Calculate standard deviation based on the current series model
-// using the cumulative method, which does not require storage of
-// the datum points.
-// Formula:
-//
-// sigma_n = sqrt((s2 / n) - (s1 / n) ^ 2)
-//
-// where s1 is the sum of observations, s2 is the sum of squares
-// n is the sample count of the set and sigma_n is the standard
-// deviation.
-func (model *StatisticsModel) recalcStdDev() {
+func (model *StatisticsModel) recalculateStdDev() {
+	// Calculate standard deviation based on the current series model
+	// using the cumulative method, which does not require storage of
+	// the datum points.
+	// Formula:
+	//
+	// sigma_n = sqrt((s2 / n) - (s1 / n) ^ 2)
+	//
+	// where s1 is the sum of observations, s2 is the sum of squares
+	// n is the sample count of the set and sigma_n is the standard
+	// deviation.
 	model.XStdDev = math.Sqrt((model.XSquaredSum /
 		float64(model.XCount)) -
 		math.Pow(model.XSum/float64(model.XCount), 2))
 }
 
-// Provides the logic and calculations necessary to operate the
-// moving Z-window approach, where the model is recentred around
-// the new value of a significant Z-mean detected following a
-// specified number of observations. This forces the weights for
-// this Real Server to be updated even if the mean has not yet
-// caught up to match the newly-significant data.
+// handleZWindow provides the logic and calculations necessary
+// to operate the  moving Z-window approach, where the model is
+// recentred around the new value of a significant Z-mean detected
+// following a specified number of observations. This forces the
+// weights for this Real Server to be updated even if the mean has
+// not yet caught up to match the newly-significant data.
 func (model *StatisticsModel) handleZWindow() {
 	// Don't do any work at all if no Z-mean threshold is specified
 	// or if we haven't achieved a minimum number of observations.
@@ -246,7 +248,16 @@ func (model *StatisticsModel) handleZWindow() {
 			// deviations away from the mean. That is, we consider
 			// this to be significant based on our model.
 			// Translate the Z-mean into the adjusted mean.
-			model.XAdjustedMean += model.ZScoreMean * model.XStdDev
+			result := model.XReportedLoad + (model.ZScoreMean * model.XStdDev)
+			// Constrain the resulting X-mean to be within the boundaries
+			// of the min-max observations seen so far (to prevent overshoot/
+			// undershoot of the result).
+			if result < model.XMin {
+				result = model.XMin
+			} else if result > model.XMax {
+				result = model.XMax
+			}
+			model.XReportedLoad = result
 			model.RecentreModel()
 		} else {
 			// The null hypothesis cannot be refuted if the result
@@ -259,21 +270,22 @@ func (model *StatisticsModel) handleZWindow() {
 	}
 }
 
+// SetResult sets the last result obtained in the model.
 func (model *StatisticsModel) setResult() {
-	model.LastResult = int64(math.Round(model.XAdjustedMean))
+	model.LastResult = int64(math.Round(model.XReportedLoad))
 }
 
-// Accessor for the weight score.
+// GetResult returns the weight score.
 func (model *StatisticsModel) GetResult() int64 {
 	return model.LastResult
 }
 
-// Returns whether or not this model has any data yet to calculate.
+// HasObservations returns if this model has any data yet to calculate.
 func (model *StatisticsModel) HasObservations() bool {
-	return (model.XCount > 0)
+	return model.XCount > 0
 }
 
-// Consolidates the current parameter state in the series
+// RecentreModel consolidates the current parameter state in the series
 // into a single observation by recentring the statistics.
 func (model *StatisticsModel) RecentreModel() {
 	model.recentreMean()
@@ -281,16 +293,16 @@ func (model *StatisticsModel) RecentreModel() {
 	model.Recentred = true
 }
 
-// Recentres the X-statistics around the "set point" of the
+// recentreMean recentres the X-statistics around the "set point" of the
 // new X-mean (mu_x).
 func (model *StatisticsModel) recentreMean() {
 	model.XCount = 1
-	model.XSum = model.XAdjustedMean
-	model.XSquaredSum = math.Pow(model.XAdjustedMean, 2)
+	model.XSum = model.XReportedLoad
+	model.XSquaredSum = math.Pow(model.XReportedLoad, 2)
 }
 
-// Recentres the Z-statistics around the new Z-mean - that is,
-// the centre of our current predicted distribution will now
+// recentreZStats recentres the Z-statistics around the new Z-mean -
+// that is, the centre of our current predicted distribution will now
 // equal mu_sigma.
 func (model *StatisticsModel) recentreZStats() {
 	model.ZSampleCount = 1

@@ -119,7 +119,7 @@ func (agent *FeedbackAgent) agentMain() (exitStatus int) {
 	return
 }
 
-// Initialises the system paths for this [FeedbackAgent].
+// InitialisePaths initialises the system paths for this FeedbackAgent.
 func (agent *FeedbackAgent) InitialisePaths() {
 	if agent.useLocalPath {
 		localDir, err := os.Getwd()
@@ -179,12 +179,12 @@ func (agent *FeedbackAgent) EventHandleLoopNew() {
 	}
 }
 
-// Sends the agent event loop a quit signal.
+// SelfSignalQuit sends the agent event loop a quit signal.
 func (agent *FeedbackAgent) SelfSignalQuit() {
 	agent.systemSignals <- agent.quitSignal
 }
 
-// Sets up logrus to show the timestamp in the correct format.
+// InitialiseLogger sets up logrus to show the timestamp in the correct format.
 func (agent *FeedbackAgent) InitialiseLogger() {
 	logrus.SetLevel(logrus.DebugLevel)
 	formatter := &logrus.TextFormatter{
@@ -195,7 +195,7 @@ func (agent *FeedbackAgent) InitialiseLogger() {
 	logrus.SetFormatter(formatter)
 }
 
-// Loads the JSON configuration file (or creates a new default file,
+// StartAllServices loads the JSON configuration file (or creates a new default file,
 // loading a default configuration) and starts Monitors and Responders.
 func (agent *FeedbackAgent) StartAllServices() (err error) {
 	logrus.Info("The Feedback Agent is now launching.")
@@ -250,7 +250,7 @@ func (agent *FeedbackAgent) StartAllServices() (err error) {
 	return
 }
 
-// Signals all [FeedbackAgent] services to stop.
+// StopAllServices signals all FeedbackAgent services to stop.
 func (agent *FeedbackAgent) StopAllServices() (err error) {
 	logrus.Info("Stopping all Feedback Agent services.")
 	var currentErr error
@@ -269,7 +269,7 @@ func (agent *FeedbackAgent) StopAllServices() (err error) {
 	return
 }
 
-// Restarts all [FeedbackAgent] services and reloads the configuration.
+// RestartAllServices restarts all FeedbackAgent services and reloads the configuration.
 func (agent *FeedbackAgent) RestartAllServices() (err error) {
 	logrus.Info("The Feedback Agent is restarting.")
 	// We want to continue to start services even if stopping fails
@@ -285,7 +285,7 @@ func (agent *FeedbackAgent) RestartAllServices() (err error) {
 	return
 }
 
-// Gets a [FeedbackResponder] by name from the map.
+// GetResponderByName gets a FeedbackResponder by name from the map.
 func (agent *FeedbackAgent) GetResponderByName(name string) (res *FeedbackResponder, err error) {
 	// Try to get a pointer to the responder object, if it exists.
 	res, exists := agent.Responders[name]
@@ -296,7 +296,7 @@ func (agent *FeedbackAgent) GetResponderByName(name string) (res *FeedbackRespon
 	return
 }
 
-// Starts a [FeedbackResponder] by name from the map.
+// StartResponderByName starts a FeedbackResponder by name from the map.
 func (agent *FeedbackAgent) StartResponderByName(name string) (err error) {
 	res, err := agent.GetResponderByName(name)
 	if err != nil {
@@ -306,7 +306,7 @@ func (agent *FeedbackAgent) StartResponderByName(name string) (err error) {
 	return
 }
 
-// Stops a [FeedbackResponder] by name from the map.
+// StopResponderByName stops a FeedbackResponder by name from the map.
 func (agent *FeedbackAgent) StopResponderByName(name string) (err error) {
 	res, err := agent.GetResponderByName(name)
 	if err != nil {
@@ -318,7 +318,7 @@ func (agent *FeedbackAgent) StopResponderByName(name string) (err error) {
 	return
 }
 
-// Deletes a [FeedbackResponder] by name from the map.
+// DeleteResponderByName deletes a FeedbackResponder by name from the map.
 func (agent *FeedbackAgent) DeleteResponderByName(name string) (err error) {
 	err = agent.StopResponderByName(name)
 	if err != nil {
@@ -328,7 +328,7 @@ func (agent *FeedbackAgent) DeleteResponderByName(name string) (err error) {
 	return
 }
 
-// Gets a [SystemMonitor] by name from the map.
+// GetMonitorByName gets a SystemMonitor by name from the map.
 func (agent *FeedbackAgent) GetMonitorByName(name string) (mon *SystemMonitor,
 	err error) {
 	// Try to get a pointer to the monitor object, if it exists.
@@ -340,7 +340,7 @@ func (agent *FeedbackAgent) GetMonitorByName(name string) (mon *SystemMonitor,
 	return
 }
 
-// Starts a [SystemMonitor] by name from the map.
+// StartMonitorByName starts a SystemMonitor by name from the map.
 func (agent *FeedbackAgent) StartMonitorByName(name string) (err error) {
 	mon, err := agent.GetMonitorByName(name)
 	if err != nil {
@@ -350,7 +350,7 @@ func (agent *FeedbackAgent) StartMonitorByName(name string) (err error) {
 	return
 }
 
-// Stops a [SystemMonitor] by name from the map.
+// StopMonitorByName stops a SystemMonitor by name from the map.
 func (agent *FeedbackAgent) StopMonitorByName(name string) (err error) {
 	mon, err := agent.GetMonitorByName(name)
 	if err != nil {
@@ -411,7 +411,7 @@ func (agent *FeedbackAgent) LoadOrCreateConfig() (err error) {
 		if err != nil {
 			logrus.Error("Error whilst saving config: " + err.Error())
 		}
-		// Clear the error as handled if it we succeeded despite an error
+		// Clear the error as handled if we succeeded despite an error
 		// occurring during the config save.
 		if success {
 			logrus.Info("Configuration file written successfully to '" + fullPath + "'.")
@@ -529,11 +529,15 @@ func CreateDirectoryIfMissing(dir string) (err error) {
 }
 
 // AddMonitor adds a monitor service to this FeedbackAgent.
-func (agent *FeedbackAgent) AddMonitor(name string, metric string, interval int, params MetricParams,
-	model *StatisticsModel) (err error) {
+func (agent *FeedbackAgent) AddMonitor(name string, metric string, interval int,
+	params MetricParams, shaping bool) (err error) {
 	mon, err := NewSystemMonitor(
-		name, metric,
-		interval, params, model, agent.configDir,
+		name,
+		metric,
+		interval,
+		params,
+		agent.configDir,
+		shaping,
 	)
 	if err != nil {
 		return
@@ -556,8 +560,11 @@ func (agent *FeedbackAgent) SetDefaultPaths() {
 func (agent *FeedbackAgent) SetDefaultServiceConfig() (err error) {
 	agent.InitialiseServiceMaps()
 	err = agent.AddMonitor(
-		"cpu", MetricTypeCPU,
-		CPUMetricMinInterval, nil, nil,
+		"cpu",
+		MetricTypeCPU,
+		CPUMetricMinInterval,
+		nil,
+		false,
 	)
 	if err != nil {
 		logrus.Error("Error: " + err.Error())

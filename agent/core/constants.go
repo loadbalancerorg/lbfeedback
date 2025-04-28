@@ -126,6 +126,11 @@ PARAMETERS:
                       is converted into a Relative Significance by summing
                       the significance of all sources within a Responder
                       and calculating their ratio.
+  -shaping-enabled    Enable Z-score (Gaussian) algorithmic load shaping
+                      for a given Monitor (true/false; disabled by default).
+                      This prevents sudden excursions in weights and therefore
+                      improves connection distribution between Real Servers
+                      within HAProxy where persistence is enabled.
   -max-value          Maximum value for a given metric against which to
                       scale its availability.
   -metric-type        Type of metric. Options: 'cpu', 'ram', 'disk-usage',

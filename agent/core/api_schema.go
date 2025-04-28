@@ -40,6 +40,7 @@ type APIRequest struct {
 	CommandInterval *int                        `json:"command-interval,omitempty"`
 	ThresholdMode   *string                     `json:"threshold-mode,omitempty"`
 	ThresholdScore  *int                        `json:"threshold-max,omitempty"`
+	ShapingEnabled  *bool                       `json:"shaping-enabled,omitempty"`
 
 	// API fields for SourceMonitor operations.
 	SourceMonitorName  *string  `json:"monitor,omitempty"`

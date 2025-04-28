@@ -63,25 +63,40 @@ func RandomHexBytes(n int) (str string) {
 }
 
 func PointerHandleIntValue(input *int) (output *int) {
-	output = input
-	if output == nil || *output < 0 {
+	if input == nil || *input < 0 {
 		output = nil
+	} else {
+		output = input
 	}
 	return
 }
 
 func PointerHandleInt64Value(input *int64) (output *int64) {
-	output = input
-	if output == nil || *output < 0 {
+	if input == nil || *input < 0 {
 		output = nil
+	} else {
+		output = input
 	}
 	return
 }
 
 func PointerHandleStringValue(input *string) (output *string) {
-	output = input
-	if output != nil && strings.TrimSpace(*output) == "" {
+	if input != nil && strings.TrimSpace(*input) == "" {
 		output = nil
+	} else {
+		output = input
+	}
+	return
+}
+
+func PointerHandleBoolString(input *string) (output *bool) {
+	if input != nil {
+		str := strings.ToLower(strings.TrimSpace(*input))
+		if str == "true" {
+			*output = true
+		} else if str == "false" {
+			*output = false
+		}
 	}
 	return
 }

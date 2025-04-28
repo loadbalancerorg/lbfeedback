@@ -40,7 +40,7 @@ func calculateMean(values []float64) float64 {
 	for i := 1; i < len(values); i++ {
 		total += values[i]
 	}
-	return float64(total / float64(len(values)))
+	return total / float64(len(values))
 }
 
 func GetParamValueString(key string, params MetricParams) (str string, err error) {
@@ -59,7 +59,7 @@ func GetParamValueString(key string, params MetricParams) (str string, err error
 
 type MetricParams map[string]string
 
-// [SystemMetric] defines a "metric" capable of reporting a load score
+// SystemMetric defines a "metric" capable of reporting a load score
 // (0.0-100.0, as a float) to the System Metric Monitor.
 type SystemMetric interface {
 	Configure(params MetricParams) (err error)
@@ -147,19 +147,19 @@ func (m *CPUMetric) Configure(params MetricParams) (err error) {
 	return
 }
 
-// Returns the current CPU metric for the host system.
+// GetLoad returns the current CPU metric for the host system.
 func (m *CPUMetric) GetLoad() (float64, error) {
 	// Whilst the docs for gopsutil indicate that passing "false"
 	// to the cpu.Percent() function should result in an overall
 	// utilisation figure, it in fact seems to only reflect the
 	// first core under Windows. To ensure compatibility, we
 	// average this ourselves from the percentages returned.
-	corePercentages, error := cpu.Percent(time.Duration(
+	corePercentages, err := cpu.Percent(time.Duration(
 		m.SampleTime*uint64(time.Millisecond)), true)
-	if error == nil {
-		return calculateMean(corePercentages), error
+	if err == nil {
+		return calculateMean(corePercentages), err
 	} else {
-		return 0.0, error
+		return 0.0, err
 	}
 }
 
@@ -191,13 +191,16 @@ const (
 	MemoryMetricMinInterval = 500
 )
 
-func (m *MemoryMetric) Configure(params MetricParams) (err error) {
+func (m *MemoryMetric) Configure(_ MetricParams) (err error) {
 	return
 }
 
-func (m *MemoryMetric) GetLoad() (float64, error) {
-	vmem, error := mem.VirtualMemory()
-	return float64(vmem.UsedPercent), error
+func (m *MemoryMetric) GetLoad() (load float64, err error) {
+	virtualMemory, err := mem.VirtualMemory()
+	if err != nil && virtualMemory != nil {
+		load = virtualMemory.UsedPercent
+	}
+	return
 }
 
 func (m *MemoryMetric) GetMetricName() string {
@@ -247,9 +250,7 @@ func (m *ScriptMetric) GetLoad() (val float64, err error) {
 		m.ScriptName))
 	if err == nil {
 		output = strings.TrimSpace(output)
-		var parsed float64
-		parsed, err = strconv.ParseFloat(output, 64)
-		val = float64(parsed)
+		val, err = strconv.ParseFloat(output, 64)
 	}
 	return
 }
@@ -330,12 +331,12 @@ const (
 	NetConnectionsMinInterval = 3000
 )
 
-func (m *NetConnectionsMetric) Configure(params MetricParams) (err error) {
+func (m *NetConnectionsMetric) Configure(_ MetricParams) (err error) {
 	return
 }
 
 func (m *NetConnectionsMetric) GetLoad() (val float64, err error) {
-	intVal, err := PlatformGetConnnectionCount()
+	intVal, err := PlatformGetConnectionCount()
 	if err != nil {
 		return
 	}

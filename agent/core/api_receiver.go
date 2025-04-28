@@ -321,13 +321,17 @@ func (agent *FeedbackAgent) APIAddMonitor(request *APIRequest) (err error) {
 	if request.MetricParams != nil {
 		params = *request.MetricParams
 	}
+	shaping := false
+	if request.ShapingEnabled != nil {
+		shaping = *request.ShapingEnabled
+	}
 	// Try to add this as a new [SystemMonitor].
 	err = agent.AddMonitor(
 		request.TargetName,
 		metricType,
 		interval,
 		params,
-		nil,
+		shaping,
 	)
 	if err != nil {
 		return
@@ -426,6 +430,10 @@ func (agent *FeedbackAgent) APIEditMonitor(request *APIRequest) (err error) {
 	}
 	if request.MetricParams != nil {
 		newMonitor.Params = *request.MetricParams
+		changed = true
+	}
+	if request.ShapingEnabled != nil {
+		newMonitor.ShapingEnabled = *request.ShapingEnabled
 		changed = true
 	}
 	if !changed {
