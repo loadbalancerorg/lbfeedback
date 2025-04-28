@@ -763,12 +763,12 @@ func (fbr *FeedbackResponder) ConfigureThresholdValue(threshold int) (err error)
 	return
 }
 
-// GetAvailability provides a corrected version of the algorithm mentioned
+// GetAvailabilityState provides a corrected version of the algorithm mentioned
 // on the Loadbalancer.org blog for the older Windows Feedback Agent, which
 // calculates an availability score against a maximum value specified for a
 // given metric, adjusted by a relative significance score (scaled proportion
 // of the total significance for all monitors attached to this responder).
-func (fbr *FeedbackResponder) GetAvailability() (availability int, onlineState bool) {
+func (fbr *FeedbackResponder) GetAvailabilityState() (availability int, onlineState bool) {
 	// Calculate the overall total load across all monitors by scaling
 	// against their maximum value, and then their relative significance.
 	// Formula:
@@ -849,7 +849,7 @@ func (fbr *FeedbackResponder) HandleFeedback() (feedback string) {
 	timestamp := time.Now()
 	fbr.mutex.Lock()
 	defer fbr.mutex.Unlock()
-	availability, thresholdState := fbr.GetAvailability()
+	availability, thresholdState := fbr.GetAvailabilityState()
 	feedback = strconv.Itoa(availability) + "%"
 
 	// First, work out if we should change state based on the threshold.
