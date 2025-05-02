@@ -697,7 +697,7 @@ func (agent *FeedbackAgent) APIHandleSetOnlineState(name string,
 		targets[name] = res
 	}
 	for _, res := range targets {
-		res.SetHAPCommandState(isOnline, true, commandMask)
+		res.SetCommandState(isOnline, true, commandMask)
 	}
 	return
 }

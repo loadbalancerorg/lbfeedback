@@ -112,7 +112,7 @@ var thresholdStringToMode = map[string]ThresholdMode{
 }
 
 // FeedbackSource defines a source mapping for a FeedbackResponder to a
-// [SystemMonitor] with a specified significance and maximum value.
+// SystemMonitor with a specified significance and maximum value.
 type FeedbackSource struct {
 	Significance         float64        `json:"significance"`
 	MaxValue             int64          `json:"max-value"`
@@ -687,13 +687,14 @@ func (fbr *FeedbackResponder) IsRunning() (state bool) {
 }
 
 // run is the function to call when the service starts; e.g.
-// the worker thread.
+// the worker thread invoked using 'go'.
 func (fbr *FeedbackResponder) run(initChannel chan int) {
+	if initChannel == nil {
+		logrus.Error("FeedbackResponder: run: fatal: invalid channel")
+		return
+	}
 	// Start by obtaining the mutex lock before doing anything else.
 	fbr.mutex.Lock()
-	if initChannel == nil {
-		fbr.LastError = errors.New("failed; missing channel")
-	}
 	// Deferred actions to always perform when this worker
 	// goroutine terminates.
 	defer func() {
@@ -705,6 +706,7 @@ func (fbr *FeedbackResponder) run(initChannel chan int) {
 		fbr.mutex.Unlock()
 		initChannel <- ServiceStateStopped
 	}()
+	// Check to see if we're already in a run state
 	if fbr.runState {
 		fbr.LastError = errors.New("already running")
 		return
@@ -715,7 +717,7 @@ func (fbr *FeedbackResponder) run(initChannel chan int) {
 	fbr.runState = true
 	fbr.mutex.Unlock()
 	// Initialise the current command state of the responder.
-	fbr.SetHAPCommandState(true, false, HAPEnumNone)
+	fbr.SetCommandState(true, false, HAPEnumNone)
 	// -- We are now running.
 	// Announce that we are now running to whatever called us.
 	fbr.statusChannel <- ServiceStateRunning
@@ -733,9 +735,8 @@ func (fbr *FeedbackResponder) getLogHead() string {
 	return "Responder '" + fbr.ResponderName + "' "
 }
 
-// SetHAPCommandState sets the current HAProxy command state, resetting the state expiry.
-func (fbr *FeedbackResponder) SetHAPCommandState(isOnline bool, force bool,
-	overrideMask int) {
+// SetCommandState sets the current responder command state, resetting the state expiry.
+func (fbr *FeedbackResponder) SetCommandState(isOnline bool, force bool, overrideMask int) {
 	fbr.mutex.Lock()
 	defer fbr.mutex.Unlock()
 	fbr.onlineState = isOnline
@@ -744,7 +745,7 @@ func (fbr *FeedbackResponder) SetHAPCommandState(isOnline bool, force bool,
 	fbr.resetStateExpiry()
 }
 
-// resetStateExpiry resets the current HAProxy command state expiry.
+// resetStateExpiry resets the current command state expiry only.
 func (fbr *FeedbackResponder) resetStateExpiry() {
 	fbr.stateExpiry = time.Now().Add(
 		time.Second * time.Duration(fbr.CommandInterval),
@@ -763,12 +764,12 @@ func (fbr *FeedbackResponder) ConfigureThresholdValue(threshold int) (err error)
 	return
 }
 
-// GetAvailabilityState provides a corrected version of the algorithm mentioned
+// CheckAvailabilityState provides a corrected version of the algorithm mentioned
 // on the Loadbalancer.org blog for the older Windows Feedback Agent, which
 // calculates an availability score against a maximum value specified for a
 // given metric, adjusted by a relative significance score (scaled proportion
 // of the total significance for all monitors attached to this responder).
-func (fbr *FeedbackResponder) GetAvailabilityState() (availability int, onlineState bool) {
+func (fbr *FeedbackResponder) CheckAvailabilityState() (availability int, onlineState bool) {
 	// Calculate the overall total load across all monitors by scaling
 	// against their maximum value, and then their relative significance.
 	// Formula:
@@ -849,7 +850,7 @@ func (fbr *FeedbackResponder) HandleFeedback() (feedback string) {
 	timestamp := time.Now()
 	fbr.mutex.Lock()
 	defer fbr.mutex.Unlock()
-	availability, thresholdState := fbr.GetAvailabilityState()
+	availability, thresholdState := fbr.CheckAvailabilityState()
 	feedback = strconv.Itoa(availability) + "%"
 
 	// First, work out if we should change state based on the threshold.
@@ -865,7 +866,7 @@ func (fbr *FeedbackResponder) HandleFeedback() (feedback string) {
 		// we need to release the mutex first before calling it
 		// and locking again for the final defer.
 		fbr.mutex.Unlock()
-		fbr.SetHAPCommandState(thresholdState, false, HAPEnumNone)
+		fbr.SetCommandState(thresholdState, false, HAPEnumNone)
 		fbr.mutex.Lock()
 	}
 

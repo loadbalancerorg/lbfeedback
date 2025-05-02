@@ -49,12 +49,12 @@ const (
 
 	// -- Settings defined at build time in this binary.
 
-	LogFileName        string = "agent.log"
-	ConfigFileName     string = "agent-config.json"
-	LocalPathMode      bool   = false
-	PanicDebug         bool   = false
-	ForceAPISecure     bool   = true
-	TLSCertExpiryHours int    = 48
+	LogFileName                 string = "agent.log"
+	ConfigFileName              string = "agent-config.json"
+	LocalPathMode               bool   = false
+	PanicDebug                  bool   = false
+	ForceAPISecure              bool   = true
+	DefaultTLSCertExpiryMinutes int    = 1
 )
 
 // ShellBanner provides the masthead printed at startup on the command line.

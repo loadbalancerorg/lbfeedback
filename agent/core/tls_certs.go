@@ -36,7 +36,8 @@ import (
 	"time"
 )
 
-func GetNewTLSCertificate(ipList []net.IP, expiresInHours int) (cert *tls.Certificate, err error) {
+func CreateNewTLSCertificate(ipList []net.IP, validFor time.Duration) (cert *tls.Certificate,
+	validTo time.Time, err error) {
 	// Generate a random serial 128-bit serial number for the cert.
 	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
 	serialNumber, err := rand.Int(rand.Reader, serialNumberLimit)
@@ -44,6 +45,8 @@ func GetNewTLSCertificate(ipList []net.IP, expiresInHours int) (cert *tls.Certif
 		err = errors.New("failed to generate serial number: " + err.Error())
 		return
 	}
+	validFrom := time.Now()
+	validTo = validFrom.Add(validFor)
 	// Build the certificate template with the required configuration.
 	template := x509.Certificate{
 		SerialNumber: serialNumber,
@@ -51,8 +54,8 @@ func GetNewTLSCertificate(ipList []net.IP, expiresInHours int) (cert *tls.Certif
 		Subject: pkix.Name{
 			Organization: []string{"Loadbalancer.org Limited"},
 		},
-		NotBefore:             time.Now(),
-		NotAfter:              time.Now().Add(time.Duration(int64(expiresInHours) * int64(time.Hour))),
+		NotBefore:             validFrom,
+		NotAfter:              validTo,
 		KeyUsage:              x509.KeyUsageDigitalSignature,
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
 		BasicConstraintsValid: true,
@@ -67,6 +70,8 @@ func GetNewTLSCertificate(ipList []net.IP, expiresInHours int) (cert *tls.Certif
 	derCertBytes, err := x509.CreateCertificate(rand.Reader, &template, &template,
 		&key.PublicKey, key,
 	)
+
+	// Check if cert generation from the template was successful.
 	if err != nil {
 		err = errors.New("failed to generate certificate: " + err.Error())
 		return
@@ -77,7 +82,7 @@ func GetNewTLSCertificate(ipList []net.IP, expiresInHours int) (cert *tls.Certif
 		err = errors.New("failed to convert private key to PEM format: " + err.Error())
 		return
 	}
-	// Parse the two DER formatted blocks into a tls.Certificate object. Note that we
+	// Encode the two DER formatted blocks into a tls.Certificate object. Note that we
 	// have to first convert these to PEM format as that is what the TLS package expects.
 	pemCertBytes := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: derCertBytes})
 	pemKeyBytes := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: derKeyBytes})
@@ -86,6 +91,7 @@ func GetNewTLSCertificate(ipList []net.IP, expiresInHours int) (cert *tls.Certif
 		err = errors.New("failed to parse public/private key pair: " + err.Error())
 		return
 	}
+	// Only return the cert to the caller if no errors were returned during generation.
 	cert = &certObject
 	return
 }
