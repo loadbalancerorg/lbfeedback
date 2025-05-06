@@ -52,9 +52,8 @@ const (
 	LogFileName                 string = "agent.log"
 	ConfigFileName              string = "agent-config.json"
 	LocalPathMode               bool   = false
-	PanicDebug                  bool   = false
 	ForceAPISecure              bool   = true
-	DefaultTLSCertExpiryMinutes int    = 1
+	DefaultTLSCertExpiryMinutes int    = 720
 )
 
 // ShellBanner provides the masthead printed at startup on the command line.
@@ -129,9 +128,9 @@ PARAMETERS:
                       and calculating their ratio.
   -shaping-enabled    Enable Z-score (Gaussian) algorithmic load shaping
                       for a given Monitor (true/false; disabled by default).
-                      This prevents sudden excursions in weights and therefore
-                      improves connection distribution between Real Servers
-                      within HAProxy where persistence is enabled.
+                      This feature aims to prevent sudden excursions in weights 
+                      and therefore improves connection distribution between 
+                      Real Servers within HAProxy where persistence is enabled.
   -max-value          Maximum value for a given metric against which to
                       scale its availability.
   -metric-type        Type of metric. Options: 'cpu', 'ram', 'disk-usage',
