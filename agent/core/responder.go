@@ -55,6 +55,7 @@ type FeedbackResponder struct {
 	ThresholdScore        int                        `json:"global-threshold,omitempty"`
 	ThresholdModeName     string                     `json:"threshold-mode,omitempty"`
 	EnableOfflineInterval bool                       `json:"enable-offline-interval,omitempty"`
+	LogStateChanges       bool                       `json:"log-state-changes,omitempty"`
 
 	// -- Exported configuration fields.
 	ResponderName string            `json:"-"`
@@ -764,12 +765,12 @@ func (fbr *FeedbackResponder) ConfigureThresholdValue(threshold int) (err error)
 	return
 }
 
-// CheckAvailabilityState provides a corrected version of the algorithm mentioned
+// GetAvailabilityState provides a corrected version of the algorithm mentioned
 // on the Loadbalancer.org blog for the older Windows Feedback Agent, which
 // calculates an availability score against a maximum value specified for a
 // given metric, adjusted by a relative significance score (scaled proportion
 // of the total significance for all monitors attached to this responder).
-func (fbr *FeedbackResponder) CheckAvailabilityState() (availability int, onlineState bool) {
+func (fbr *FeedbackResponder) GetAvailabilityState() (availability int, online bool, logText string) {
 	// Calculate the overall total load across all monitors by scaling
 	// against their maximum value, and then their relative significance.
 	// Formula:
@@ -780,26 +781,34 @@ func (fbr *FeedbackResponder) CheckAvailabilityState() (availability int, online
 	//       v_max = maximum specified ceiling for the source
 	//       sig_rel = fraction of all significances set for this monitor
 	//
-	onlineState = true
-	totalLoad := 0
+	// The responder should be in an online state unless otherwise disproven.
+	online = true
+	// The sum of all load values from each source, multiplied by the relative significance.
+	overallLoad := 0
+	// Process the current load values for all feedback sources.
 	for _, source := range fbr.FeedbackSources {
 		// Skip any monitors with no significance.
 		if source.RelativeSignificance <= 0.0 {
 			continue
 		}
 		sourceLoad := getSourceLoad(source)
-		sourceThresholdReached := fbr.thresholdCheck("source '"+source.Monitor.Name+"'",
+		exceeded, msg := fbr.getThresholdStatus("source '"+
+			source.Monitor.Name+"'",
 			int(source.Threshold), sourceLoad)
-		if sourceThresholdReached && fbr.isSourceThresholdEnabled() {
-			onlineState = false
+		logText += msg
+		if exceeded && fbr.isSourceThresholdEnabled() {
+			online = false
 		}
-		totalLoad += int(float64(sourceLoad) * source.RelativeSignificance)
+		overallLoad += int(float64(sourceLoad) * source.RelativeSignificance)
 	}
-	overallThresholdReached := fbr.thresholdCheck("overall", fbr.ThresholdScore, totalLoad)
-	if overallThresholdReached && fbr.isOverallThresholdEnabled() {
-		onlineState = false
+	// Check the overall threshold, if applicable.
+	exceeded, logText := fbr.getThresholdStatus("overall",
+		fbr.ThresholdScore, overallLoad)
+	if exceeded && fbr.isOverallThresholdEnabled() {
+		online = false
 	}
-	availability = 100 - totalLoad
+	// Invert the overall load percentage to give the availability.
+	availability = 100 - overallLoad
 	return
 }
 
@@ -831,16 +840,25 @@ func getSourceLoad(source *FeedbackSource) (load int) {
 	return
 }
 
-func (fbr *FeedbackResponder) thresholdCheck(name string, threshold int,
-	load int) bool {
-	if threshold > 0 && load >= threshold {
-		logrus.Info(fbr.getLogHead() + ": " + name + ": load (" +
-			strconv.Itoa(load) + "%) reached max (" +
-			strconv.Itoa(threshold) + "%)")
-		return true
+func (fbr *FeedbackResponder) getThresholdStatus(name string, threshold int, load int) (
+	exceeded bool, msg string) {
+	msg = name + ": "
+	if threshold <= 0 {
+		// If threshold is disabled, then exceeded is always false.
+		msg += "threshold is disabled"
 	} else {
-		return false
+		msg += "load (" + strconv.Itoa(load) + "%) "
+		if load < threshold {
+			// If the load is less than the threshold, then exceeded is also false.
+			msg += "is within"
+		} else {
+			// Otherwise, the threshold has been exceeded.
+			msg += "has exceeded"
+			exceeded = true
+		}
+		msg += " threshold (" + strconv.Itoa(threshold) + "%)"
 	}
+	return
 }
 
 // HandleFeedback generates a feedback string for this FeedbackResponder.
@@ -850,7 +868,7 @@ func (fbr *FeedbackResponder) HandleFeedback() (feedback string) {
 	timestamp := time.Now()
 	fbr.mutex.Lock()
 	defer fbr.mutex.Unlock()
-	availability, thresholdState := fbr.CheckAvailabilityState()
+	availability, thresholdState, logMessage := fbr.GetAvailabilityState()
 	feedback = strconv.Itoa(availability) + "%"
 
 	// First, work out if we should change state based on the threshold.
@@ -867,6 +885,9 @@ func (fbr *FeedbackResponder) HandleFeedback() (feedback string) {
 		// and locking again for the final defer.
 		fbr.mutex.Unlock()
 		fbr.SetCommandState(thresholdState, false, HAPEnumNone)
+		if fbr.LogStateChanges {
+			logrus.Info(fbr.getLogHead() + ": " + logMessage)
+		}
 		fbr.mutex.Lock()
 	}
 
