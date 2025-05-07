@@ -63,12 +63,12 @@ func (agent *FeedbackAgent) ValidateAPIRequest(request *APIRequest) (errID strin
 	if request == nil {
 		errID = "bad-json"
 		errMsg = "could not read JSON"
-	} else if (request.Type == "monitor" ||
-		request.Type == "responder") &&
+	} else if (request.Type == "monitor" || request.Type == "responder") &&
 		request.TargetName == "" {
 		errID = "missing-target"
 		errMsg = "no target service name specified"
 	} else if request.APIKey == "" || request.APIKey != agent.APIKey {
+		//logrus.Debug("api key mismatch: request = '" + request.APIKey + "', agent = '" + agent.APIKey + "'")
 		errID = "bad-api-key"
 		errMsg = "invalid or missing API key"
 	}
@@ -102,15 +102,15 @@ func (agent *FeedbackAgent) ProcessAPIRequest(request *APIRequest, parseErr erro
 		response.Message = "JSON syntax error: " + parseErr.Error()
 		return
 	}
+	request.Type = strings.TrimSpace(request.Type)
+	request.Action = strings.TrimSpace(request.Action)
+	request.TargetName = strings.TrimSpace(request.TargetName)
 	response.Error, response.Message = agent.ValidateAPIRequest(request)
 	if response.Error != "" {
 		return
 	}
-	request.Type = strings.TrimSpace(request.Type)
-	request.Action = strings.TrimSpace(request.Action)
-	request.TargetName = strings.TrimSpace(request.TargetName)
 	// -- The main API command tree.
-	// This default error will be overriden by nil or another error
+	// This default error will be overridden by nil or another error
 	// if a matching part of the tree is reached.
 	desc := BuildAPIDescription(request)
 	unknownType, suppressLog, quitAfterResponding, err :=
@@ -185,7 +185,8 @@ func (agent *FeedbackAgent) apiActionTree(request *APIRequest, response *APIResp
 	case "get":
 		switch request.Type {
 		case "config":
-			response.AgentConfig = agent
+			config := agent.APIHandleGetConfig()
+			response.AgentConfig = &config
 			suppressLog = true
 		case "feedback":
 			response.Output, err =
@@ -237,6 +238,17 @@ func (agent *FeedbackAgent) apiActionTree(request *APIRequest, response *APIResp
 	default:
 		err = errors.New("invalid action specified")
 	}
+	return
+}
+
+func (agent *FeedbackAgent) APIHandleGetConfig() (config FeedbackAgent) {
+	// Shallow-copy the fields from the agent first to avoid overwriting them.
+	config = *agent
+	// Hide the API key from the response for security
+	config.APIKey = ""
+	// Remove duplicated service name and version
+	config.ServiceName = ""
+	config.Version = ""
 	return
 }
 
@@ -322,8 +334,8 @@ func (agent *FeedbackAgent) APIAddMonitor(request *APIRequest) (err error) {
 		params = *request.MetricParams
 	}
 	shaping := false
-	if request.ShapingEnabled != nil {
-		shaping = *request.ShapingEnabled
+	if request.SmartShape != nil {
+		shaping = *request.SmartShape
 	}
 	// Try to add this as a new [SystemMonitor].
 	err = agent.AddMonitor(
@@ -418,26 +430,55 @@ func (agent *FeedbackAgent) APIEditMonitor(request *APIRequest) (err error) {
 		return
 	}
 	changed := false
+	valid := false
+
 	// Copy the old monitor so that we can apply the changes to it.
 	newMonitor := oldMonitor.Copy()
+
+	// Handle any changes to the metric type.
 	if request.MetricType != nil {
-		newMonitor.MetricType = *request.MetricType
-		changed = true
+		metricType, _ := StandardiseNameIdentifier(*request.MetricType)
+		if metricType != "" {
+			valid = true
+			if metricType != newMonitor.MetricType {
+				newMonitor.MetricType = metricType
+				changed = true
+			}
+		}
 	}
+
 	if request.MetricInterval != nil {
-		newMonitor.Interval = *request.MetricInterval
-		changed = true
+		valid = true
+		if *request.MetricInterval != oldMonitor.Interval {
+			newMonitor.Interval = *request.MetricInterval
+			changed = true
+		}
 	}
+
+	// Process metric parameter key/value pairs if required.
 	if request.MetricParams != nil {
-		newMonitor.Params = *request.MetricParams
-		changed = true
+		for key, value := range *request.MetricParams {
+			key = strings.ToLower(strings.TrimSpace(key))
+			value = strings.TrimSpace(value)
+			if key != "" && value != "" {
+				valid = true
+				newMonitor.Params[key] = value
+				changed = true
+			}
+		}
 	}
-	if request.ShapingEnabled != nil {
-		newMonitor.ShapingEnabled = *request.ShapingEnabled
-		changed = true
+
+	if request.SmartShape != nil {
+		valid = true
+		if *request.SmartShape != oldMonitor.SmartShape {
+			newMonitor.SmartShape = *request.SmartShape
+			changed = true
+		}
 	}
 	if !changed {
-		err = errors.New("no fields changed in request")
+		if !valid {
+			err = errors.New("no valid fields to change specified")
+		}
 		return
 	}
 	// Attempt to initialise the new monitor to validate it, else error.
@@ -470,13 +511,13 @@ func (agent *FeedbackAgent) APIEditMonitor(request *APIRequest) (err error) {
 	return
 }
 
-func (agent *FeedbackAgent) APIModifyResponder(request *APIRequest) (err error) {
-	// Fetch the responder that this pertains to (otherwise, an error occurs).
+func (agent *FeedbackAgent) APIEditResponder(request *APIRequest) (err error) {
+	// Fetch the responder that this pertains to (otherwise, return the error).
 	oldResponder, err := agent.GetResponderByName(request.TargetName)
 	if err != nil {
 		return
 	}
-	// Copy the old monitor so that we can apply the changes to it.
+	// Copy the old responder so that we can apply the changes to it.
 	newResponder := oldResponder.Copy()
 	// Process JSON pointer fields (to determine if they were set or not).
 	if request.FeedbackSources != nil {
@@ -509,6 +550,9 @@ func (agent *FeedbackAgent) APIModifyResponder(request *APIRequest) (err error) 
 	}
 	if request.FeedbackSources != nil {
 		newResponder.FeedbackSources = *request.FeedbackSources
+	}
+	if request.LogStateChanges != nil {
+		newResponder.LogStateChanges = *request.LogStateChanges
 	}
 	// Attempt to initialise the new responder to validate it, else error.
 	err = newResponder.Initialise()
@@ -590,7 +634,7 @@ func (agent *FeedbackAgent) APIHandleResponderRequest(request *APIRequest) (
 	}
 	switch request.Action {
 	case "edit":
-		err = agent.APIModifyResponder(request)
+		err = agent.APIEditResponder(request)
 	case "delete":
 		err = agent.APIDeleteResponder(request)
 	case "start":

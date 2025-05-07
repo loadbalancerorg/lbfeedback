@@ -126,7 +126,7 @@ PARAMETERS:
                       is converted into a Relative Significance by summing
                       the significance of all sources within a Responder
                       and calculating their ratio.
-  -shaping-enabled    Enable Z-score (Gaussian) algorithmic load shaping
+  -smart-shape        Enable Z-score (Gaussian) algorithmic load shaping
                       for a given Monitor (true/false; disabled by default).
                       This feature aims to prevent sudden excursions in weights 
                       and therefore improves connection distribution between 

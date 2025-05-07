@@ -96,12 +96,9 @@ func RunClientCLI() (status int) {
 			println("Error: Failed to format response.")
 		} else {
 			println(
-				"JSON reply from the Feedback Agent:\n" +
+				"JSON response from the Feedback Agent:\n" +
 					string(reformatted) + "\n",
 			)
-			if responseObject.Message != "" {
-				println(responseObject.Message + "\n")
-			}
 		}
 	}
 	resultMsg := ""
@@ -146,7 +143,8 @@ func CLIHandleAgentAction(actionName string, actionType string, argv []string) (
 	argSampleTime := apiArgs.String("sampling-ms", "", "")
 	argScriptName := apiArgs.String("script-name", "", "")
 	argDiskPath := apiArgs.String("disk-path", "", "")
-	argShapingEnabledString := apiArgs.String("shaping-enabled", "", "")
+	argShapingEnabledString := apiArgs.String("smart-shape", "", "")
+	argLogStateChangesString := apiArgs.String("log-state-changes", "", "")
 
 	// $$ TO DO: Define help for actions.
 	err = apiArgs.Parse(argv)
@@ -168,6 +166,19 @@ func CLIHandleAgentAction(actionName string, actionType string, argv []string) (
 	argCommandList = PointerHandleStringValue(argCommandList)
 	argSourceMaxValue = PointerHandleInt64Value(argSourceMaxValue)
 	argShapingEnabled := PointerHandleBoolString(argShapingEnabledString)
+	argLogStateChanges := PointerHandleBoolString(argLogStateChangesString)
+
+	// Process any metric parameters specified on the CLI.
+	params := MetricParams{}
+	if argSampleTime != nil && *argSampleTime != "" {
+		params[ParamKeySampleTime] = *argSampleTime
+	}
+	if argScriptName != nil && *argScriptName != "" {
+		params[ParamKeyScriptName] = *argScriptName
+	}
+	if argDiskPath != nil && *argDiskPath != "" {
+		params[ParamKeyDiskPath] = *argDiskPath
+	}
 
 	// Set fields into the new API request; the API will be responsible
 	// for determining the validity of options for a request.
@@ -189,12 +200,9 @@ func CLIHandleAgentAction(actionName string, actionType string, argv []string) (
 		SourceMaxValue:     argSourceMaxValue,
 		MetricType:         argMetricType,
 		MetricInterval:     argCommandInterval,
-		MetricParams: &MetricParams{
-			ParamKeySampleTime: *argSampleTime,
-			ParamKeyScriptName: *argScriptName,
-			ParamKeyDiskPath:   *argDiskPath,
-		},
-		ShapingEnabled: argShapingEnabled,
+		MetricParams:       &params,
+		SmartShape:         argShapingEnabled,
+		LogStateChanges:    argLogStateChanges,
 	}
 
 	// Workaround for * being expanded into a glob in bash

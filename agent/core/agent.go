@@ -39,12 +39,12 @@ import (
 type FeedbackAgent struct {
 	// Config masthead fields. These were absent prior to v5.3.6 and
 	// must therefore have the omitempty flag set for the JSON.
-	ServiceName string `json:"service-name"`
-	Version     string `json:"version"`
+	ServiceName string `json:"service-name,omitempty"`
+	Version     string `json:"version,omitempty"`
 
 	// Agent configuration fields
 	LogDir     string                        `json:"log-dir"`
-	APIKey     string                        `json:"api-key"`
+	APIKey     string                        `json:"api-key,omitempty"`
 	Monitors   map[string]*SystemMonitor     `json:"monitors"`
 	Responders map[string]*FeedbackResponder `json:"responders"`
 
@@ -61,7 +61,7 @@ type FeedbackAgent struct {
 
 // PanicDebug specifies if a panic should result in termination
 // or instead be ignored in a parent service via recover().
-var PanicDebug = false
+var PanicDebug = true
 
 // LaunchAgentService creates a new [FeedbackAgent] service and runs it.
 func LaunchAgentService() (exitStatus int) {
@@ -281,6 +281,10 @@ func (agent *FeedbackAgent) RestartAllServices() (err error) {
 
 // GetResponderByName gets a FeedbackResponder by name from the map.
 func (agent *FeedbackAgent) GetResponderByName(name string) (res *FeedbackResponder, err error) {
+	name, err = StandardiseNameIdentifier(name)
+	if err != nil {
+		return
+	}
 	// Try to get a pointer to the responder object, if it exists.
 	res, exists := agent.Responders[name]
 	if !exists || res == nil {
@@ -292,6 +296,10 @@ func (agent *FeedbackAgent) GetResponderByName(name string) (res *FeedbackRespon
 
 // StartResponderByName starts a FeedbackResponder by name from the map.
 func (agent *FeedbackAgent) StartResponderByName(name string) (err error) {
+	name, err = StandardiseNameIdentifier(name)
+	if err != nil {
+		return
+	}
 	res, err := agent.GetResponderByName(name)
 	if err != nil {
 		return
@@ -302,6 +310,10 @@ func (agent *FeedbackAgent) StartResponderByName(name string) (err error) {
 
 // StopResponderByName stops a FeedbackResponder by name from the map.
 func (agent *FeedbackAgent) StopResponderByName(name string) (err error) {
+	name, err = StandardiseNameIdentifier(name)
+	if err != nil {
+		return
+	}
 	res, err := agent.GetResponderByName(name)
 	if err != nil {
 		return
@@ -314,6 +326,10 @@ func (agent *FeedbackAgent) StopResponderByName(name string) (err error) {
 
 // DeleteResponderByName deletes a FeedbackResponder by name from the map.
 func (agent *FeedbackAgent) DeleteResponderByName(name string) (err error) {
+	name, err = StandardiseNameIdentifier(name)
+	if err != nil {
+		return
+	}
 	err = agent.StopResponderByName(name)
 	if err != nil {
 		return
@@ -325,6 +341,10 @@ func (agent *FeedbackAgent) DeleteResponderByName(name string) (err error) {
 // GetMonitorByName gets a SystemMonitor by name from the map.
 func (agent *FeedbackAgent) GetMonitorByName(name string) (mon *SystemMonitor,
 	err error) {
+	name, err = StandardiseNameIdentifier(name)
+	if err != nil {
+		return
+	}
 	// Try to get a pointer to the monitor object, if it exists.
 	mon, exists := agent.Monitors[name]
 	if !exists || mon == nil {
@@ -336,6 +356,10 @@ func (agent *FeedbackAgent) GetMonitorByName(name string) (mon *SystemMonitor,
 
 // StartMonitorByName starts a SystemMonitor by name from the map.
 func (agent *FeedbackAgent) StartMonitorByName(name string) (err error) {
+	name, err = StandardiseNameIdentifier(name)
+	if err != nil {
+		return
+	}
 	mon, err := agent.GetMonitorByName(name)
 	if err != nil {
 		return
@@ -346,6 +370,10 @@ func (agent *FeedbackAgent) StartMonitorByName(name string) (err error) {
 
 // StopMonitorByName stops a SystemMonitor by name from the map.
 func (agent *FeedbackAgent) StopMonitorByName(name string) (err error) {
+	name, err = StandardiseNameIdentifier(name)
+	if err != nil {
+		return
+	}
 	mon, err := agent.GetMonitorByName(name)
 	if err != nil {
 		return
@@ -356,6 +384,10 @@ func (agent *FeedbackAgent) StopMonitorByName(name string) (err error) {
 
 // DeleteMonitorByName deletes a SystemMonitor by name from the map.
 func (agent *FeedbackAgent) DeleteMonitorByName(name string) (err error) {
+	name, err = StandardiseNameIdentifier(name)
+	if err != nil {
+		return
+	}
 	err = agent.StopMonitorByName(name)
 	if err != nil {
 		return

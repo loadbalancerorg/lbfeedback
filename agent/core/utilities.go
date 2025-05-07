@@ -25,6 +25,7 @@ package agent
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"log"
 	"strings"
 )
@@ -99,13 +100,28 @@ func PointerHandleStringValue(input *string) (output *string) {
 // state ("true" or "false") into a bool pointer type if is not nil. This
 // is to provide a workaround for an annoying bug in the Go flags package.
 func PointerHandleBoolString(input *string) (output *bool) {
+	valueTrue := true
+	valueFalse := false
 	if input != nil {
 		str := strings.ToLower(strings.TrimSpace(*input))
 		if str == "true" {
-			*output = true
+			output = &valueTrue
 		} else if str == "false" {
-			*output = false
+			output = &valueFalse
 		}
+	}
+	return
+}
+
+// StandardiseNameIdentifier validates and standardises an object name identifier.
+func StandardiseNameIdentifier(in string) (out string, err error) {
+	// Sanitise the name string
+	str := strings.ToLower(strings.TrimSpace(in))
+	// If it's empty, return an error, otherwise return the string
+	if str == "" {
+		err = errors.New("name not specified")
+	} else {
+		out = str
 	}
 	return
 }

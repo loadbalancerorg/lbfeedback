@@ -36,20 +36,20 @@ import (
 // to a StatisticsModel for cumulative calculation into relative feedback
 // weights.
 type SystemMonitor struct {
-	Name           string           `json:"-"`
-	MetricType     string           `json:"metric-type"`
-	Interval       int              `json:"interval-ms,omitempty"`
-	Params         MetricParams     `json:"metric-config,omitempty"`
-	ShapingEnabled bool             `json:"shaping-enabled,omitempty"`
-	FilePath       string           `json:"-"`
-	StatsModel     *StatisticsModel `json:"-"`
-	SysMetric      SystemMetric     `json:"-"`
-	LastError      error            `json:"-"`
-	signalChannel  chan int
-	statusChannel  chan int
-	runState       bool
-	isInitialised  bool
-	mutex          *sync.Mutex
+	Name          string           `json:"-"`
+	MetricType    string           `json:"metric-type"`
+	Interval      int              `json:"interval-ms,omitempty"`
+	Params        MetricParams     `json:"metric-config,omitempty"`
+	SmartShape    bool             `json:"smart-shape,omitempty"`
+	FilePath      string           `json:"-"`
+	StatsModel    *StatisticsModel `json:"-"`
+	SysMetric     SystemMetric     `json:"-"`
+	LastError     error            `json:"-"`
+	signalChannel chan int
+	statusChannel chan int
+	runState      bool
+	isInitialised bool
+	mutex         *sync.Mutex
 }
 
 const (
@@ -60,14 +60,14 @@ func NewSystemMonitor(name string, metric string, interval int,
 	params MetricParams, filePath string, shaping bool) (
 	mon *SystemMonitor, err error) {
 	mon = &SystemMonitor{
-		Name:           name,
-		Interval:       interval,
-		MetricType:     metric,
-		Params:         params,
-		FilePath:       filePath,
-		signalChannel:  make(chan int),
-		statusChannel:  make(chan int),
-		ShapingEnabled: shaping,
+		Name:          name,
+		Interval:      interval,
+		MetricType:    metric,
+		Params:        params,
+		FilePath:      filePath,
+		signalChannel: make(chan int),
+		statusChannel: make(chan int),
+		SmartShape:    shaping,
 	}
 	err = mon.Initialise()
 	return
@@ -93,7 +93,7 @@ func (monitor *SystemMonitor) Initialise() (err error) {
 		monitor.StatsModel = &StatisticsModel{}
 		monitor.StatsModel.SetDefaultParams()
 	}
-	monitor.StatsModel.ShapingEnabled = monitor.ShapingEnabled
+	monitor.StatsModel.ShapingEnabled = monitor.SmartShape
 	monitor.SysMetric, err = NewMetric(monitor.MetricType,
 		monitor.Params, monitor.FilePath)
 	if err != nil {

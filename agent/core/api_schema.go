@@ -40,10 +40,12 @@ type APIRequest struct {
 	CommandInterval *int                        `json:"command-interval,omitempty"`
 	ThresholdMode   *string                     `json:"threshold-mode,omitempty"`
 	ThresholdScore  *int                        `json:"threshold-max,omitempty"`
-	ShapingEnabled  *bool                       `json:"shaping-enabled,omitempty"`
+	SmartShape      *bool                       `json:"smart-shape,omitempty"`
+	LogStateChanges *bool                       `json:"log-state-changes,omitempty"`
 
 	// API fields for SourceMonitor operations.
-	SourceMonitorName  *string  `json:"monitor,omitempty"`
+	SourceMonitorName *string `json:"monitor,omitempty"
+ty"`
 	SourceSignificance *float64 `json:"significance,omitempty"`
 	SourceMaxValue     *int64   `json:"max-value,omitempty"`
 
@@ -61,9 +63,9 @@ type APIResponse struct {
 	Tag             string                     `json:"tag,omitempty"`
 	Request         *APIRequest                `json:"request,omitempty"`
 	Success         bool                       `json:"success"`
+	Message         string                     `json:"msg,omitempty"`
 	Output          string                     `json:"output,omitempty"`
 	Error           string                     `json:"error-name,omitempty"`
-	Message         string                     `json:"message,omitempty"`
 	AgentConfig     *FeedbackAgent             `json:"current-config,omitempty"`
 	ServiceStatus   []APIServiceStatus         `json:"status,omitempty"`
 	FeedbackSources map[string]*FeedbackSource `json:"feedback-sources,omitempty"`
