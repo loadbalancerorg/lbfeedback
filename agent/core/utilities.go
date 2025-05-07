@@ -62,6 +62,8 @@ func RandomHexBytes(n int) (str string) {
 	return
 }
 
+// PointerHandleIntValue filters an input integer pointer, setting
+// the return value to nil if the input is less than zero.
 func PointerHandleIntValue(input *int) (output *int) {
 	if input == nil || *input < 0 {
 		output = nil
@@ -71,6 +73,8 @@ func PointerHandleIntValue(input *int) (output *int) {
 	return
 }
 
+// PointerHandleInt64Value provides the same functionality as PointerHandleIntValue,
+// but for 64-bit integer pointers.
 func PointerHandleInt64Value(input *int64) (output *int64) {
 	if input == nil || *input < 0 {
 		output = nil
@@ -80,6 +84,8 @@ func PointerHandleInt64Value(input *int64) (output *int64) {
 	return
 }
 
+// PointerHandleStringValue filters an input string pointer, setting
+// the output to nil if the string is empty.
 func PointerHandleStringValue(input *string) (output *string) {
 	if input != nil && strings.TrimSpace(*input) == "" {
 		output = nil
@@ -89,6 +95,9 @@ func PointerHandleStringValue(input *string) (output *string) {
 	return
 }
 
+// PointerHandleBoolString converts a string representation of a boolean
+// state ("true" or "false") into a bool pointer type if is not nil. This
+// is to provide a workaround for an annoying bug in the Go flags package.
 func PointerHandleBoolString(input *string) (output *bool) {
 	if input != nil {
 		str := strings.ToLower(strings.TrimSpace(*input))
