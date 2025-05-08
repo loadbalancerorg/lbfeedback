@@ -56,7 +56,7 @@ type APIRequest struct {
 
 // APIResponse defines a response to be sent from the agent to a client.
 type APIResponse struct {
-	APIName         string                     `json:"service-name"`
+	APIName         string                     `json:"service"`
 	Version         string                     `json:"version"`
 	ID              *int                       `json:"id,omitempty"`
 	Tag             string                     `json:"tag,omitempty"`

@@ -121,7 +121,7 @@ PARAMETERS:
                       'metrics' Down if any metric exceeds the configured 
                                 threshold, ignoring the overall relative load.
   -command-interval   Time interval to send HAProxy commands for (ms, 
-                      default 10000).
+                      default 10000), timed from the first Feedback Request.
   -monitor            Name identifier of a target Monitor.
   -significance       Significance value (floating-point; e.g. 1.0). This
                       is converted into a Relative Significance by summing

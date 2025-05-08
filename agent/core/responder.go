@@ -95,21 +95,21 @@ type ThresholdMode int
 const (
 	ThresholdModeAny ThresholdMode = iota
 	ThresholdModeNone
-	ThresholdModeOverall
-	ThresholdModeSource
+	ThresholdModeOverallOnly
+	ThresholdModeMetricOnly
 )
 const (
-	ThresholdStringAny     = "any"
-	ThresholdStringNone    = "none"
-	ThresholdStringOverall = "overall"
-	ThresholdStringMetric  = "source"
+	ThresholdStringAny         = "any"
+	ThresholdStringNone        = "none"
+	ThresholdStringOverallOnly = "overall"
+	ThresholdStringMetricOnly  = "metric"
 )
 
 var thresholdStringToMode = map[string]ThresholdMode{
-	ThresholdStringAny:     ThresholdModeAny,
-	ThresholdStringNone:    ThresholdModeNone,
-	ThresholdStringOverall: ThresholdModeOverall,
-	ThresholdStringMetric:  ThresholdModeSource,
+	ThresholdStringAny:         ThresholdModeAny,
+	ThresholdStringNone:        ThresholdModeNone,
+	ThresholdStringOverallOnly: ThresholdModeOverallOnly,
+	ThresholdStringMetricOnly:  ThresholdModeMetricOnly,
 }
 
 // FeedbackSource defines a source mapping for a FeedbackResponder to a
@@ -632,11 +632,15 @@ func (fbr *FeedbackResponder) Start() (err error) {
 				"currently has no monitor sources configured.",
 		)
 	}
+	// Create a new channel for us to know when the worker has initialised or failed.
 	initChannel := make(chan int)
+	// Launch the worker goroutine for this FeedbackResponder.
 	go fbr.run(initChannel)
 	fbr.mutex.Unlock()
+	// Wait on a result from the initialisation channel.
 	result := <-initChannel
 	fbr.mutex.Lock()
+	// Log the appropriate status.
 	if result == ServiceStateRunning && fbr.LastError == nil {
 		logLine += "has started (" + strings.ToUpper(fbr.ProtocolName) +
 			" on " + fbr.ListenIPAddress + ":" + fbr.ListenPort + ")."
@@ -645,6 +649,7 @@ func (fbr *FeedbackResponder) Start() (err error) {
 		logLine += "failed to start, error: " + fbr.LastError.Error()
 		logrus.Error(logLine)
 	}
+	// Return whatever the shared field holds for the worker error.
 	err = fbr.LastError
 	return
 }
@@ -790,8 +795,8 @@ func (fbr *FeedbackResponder) GetAvailabilityState() (availability int, online b
 		// Get source load and add into the overall load scaled by its significance.
 		sourceLoad := getSourceLoad(source)
 		// Check to see if any per-source thresholds have been exceeded, if enabled.
-		if fbr.isSourceThresholdEnabled() {
-			exceeded, msg := fbr.getThresholdStatus("per-source: source '"+
+		if fbr.isMetricThresholdEnabled() {
+			exceeded, msg := fbr.getThresholdStatus("metric: source '"+
 				source.Monitor.Name+"'",
 				int(source.Threshold), sourceLoad)
 			if exceeded {
@@ -830,14 +835,14 @@ func (fbr *FeedbackResponder) isAnyThresholdEnabled() bool {
 	return fbr.thresholdModeEnum == ThresholdModeAny
 }
 
-func (fbr *FeedbackResponder) isSourceThresholdEnabled() bool {
+func (fbr *FeedbackResponder) isMetricThresholdEnabled() bool {
 	return fbr.thresholdModeEnum == ThresholdModeAny ||
-		fbr.thresholdModeEnum == ThresholdModeSource
+		fbr.thresholdModeEnum == ThresholdModeMetricOnly
 }
 
 func (fbr *FeedbackResponder) isOverallThresholdEnabled() bool {
 	return fbr.thresholdModeEnum == ThresholdModeAny ||
-		fbr.thresholdModeEnum == ThresholdModeOverall
+		fbr.thresholdModeEnum == ThresholdModeOverallOnly
 }
 
 func getSourceLoad(source *FeedbackSource) (load int) {
