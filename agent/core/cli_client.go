@@ -86,28 +86,37 @@ func RunClientCLI() (status int) {
 	if err != nil {
 		println("Error: " + err.Error() + ".")
 		status = ExitStatusError
+		return
 	}
+	// If there is a valid response object, pretty print it.
 	if responseObject != nil {
 		// Remove fields that we want to hide from the object
 		responseObject.Request = nil
 		responseObject.ID = nil
-		reformatted, err := json.MarshalIndent(responseObject, "", "    ")
+		// Marshal back again to JSON from the model object to pretty-print it.
+		prettyPrintedJSON, err := json.MarshalIndent(responseObject, "", "    ")
 		if err != nil {
-			println("Error: Failed to format response.")
+			println("Error: Failed to format response: " + err.Error())
 		} else {
 			println(
-				"JSON response from the Feedback Agent:\n" +
-					string(reformatted) + "\n",
+				"JSON response from the Feedback Agent:\n\n" +
+					string(prettyPrintedJSON) + "\n",
 			)
+			if responseObject.Message != "" {
+				println(responseObject.Message)
+			}
+			if responseObject.Output != "" {
+				println(responseObject.Output)
+			}
 		}
 	}
-	resultMsg := ""
+	resultMsg := "The operation "
 	if responseObject == nil || !responseObject.Success {
-		resultMsg = "could not be completed"
+		resultMsg += "could not be completed."
 	} else {
-		resultMsg = "was successful"
+		resultMsg += "was successful."
 	}
-	println("The operation " + resultMsg + ".")
+	println(resultMsg)
 	return
 }
 

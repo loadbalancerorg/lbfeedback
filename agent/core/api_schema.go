@@ -44,8 +44,7 @@ type APIRequest struct {
 	LogStateChanges *bool                       `json:"log-state-changes,omitempty"`
 
 	// API fields for SourceMonitor operations.
-	SourceMonitorName *string `json:"monitor,omitempty"
-ty"`
+	SourceMonitorName  *string  `json:"monitor,omitempty"`
 	SourceSignificance *float64 `json:"significance,omitempty"`
 	SourceMaxValue     *int64   `json:"max-value,omitempty"`
 
@@ -63,9 +62,9 @@ type APIResponse struct {
 	Tag             string                     `json:"tag,omitempty"`
 	Request         *APIRequest                `json:"request,omitempty"`
 	Success         bool                       `json:"success"`
-	Message         string                     `json:"msg,omitempty"`
-	Output          string                     `json:"output,omitempty"`
 	Error           string                     `json:"error-name,omitempty"`
+	Message         string                     `json:"message,omitempty"`
+	Output          string                     `json:"output,omitempty"`
 	AgentConfig     *FeedbackAgent             `json:"current-config,omitempty"`
 	ServiceStatus   []APIServiceStatus         `json:"status,omitempty"`
 	FeedbackSources map[string]*FeedbackSource `json:"feedback-sources,omitempty"`

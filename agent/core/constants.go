@@ -23,9 +23,10 @@
 package agent
 
 const (
+
 	// -- Version parameters.
 
-	VersionString   string = "5.3.6"
+	VersionString   string = "5.4.0"
 	CopyrightYear   string = "2025"
 	ApplicationName string = "Loadbalancer.org Feedback Agent"
 	AppIdentifier   string = "lbfeedback"

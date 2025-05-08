@@ -787,29 +787,47 @@ func (fbr *FeedbackResponder) GetAvailabilityState() (availability int, online b
 	overallLoad := 0
 	// Process the current load values for all feedback sources.
 	for _, source := range fbr.FeedbackSources {
-		// Skip any monitors with no significance.
-		if source.RelativeSignificance <= 0.0 {
-			continue
-		}
+		// Get source load and add into the overall load scaled by its significance.
 		sourceLoad := getSourceLoad(source)
-		exceeded, msg := fbr.getThresholdStatus("source '"+
-			source.Monitor.Name+"'",
-			int(source.Threshold), sourceLoad)
-		logText += msg
-		if exceeded && fbr.isSourceThresholdEnabled() {
-			online = false
+		// Check to see if any per-source thresholds have been exceeded, if enabled.
+		if fbr.isSourceThresholdEnabled() {
+			exceeded, msg := fbr.getThresholdStatus("per-source: source '"+
+				source.Monitor.Name+"'",
+				int(source.Threshold), sourceLoad)
+			if exceeded {
+				online = false
+			}
+			logText += msg
 		}
+		// Check if we are looking for any threshold value, and if it has been exceeded.
+		if fbr.isAnyThresholdEnabled() {
+			exceeded, msg := fbr.getThresholdStatus("any: source '"+
+				source.Monitor.Name+"'",
+				fbr.ThresholdScore, sourceLoad)
+			if exceeded {
+				online = false
+			}
+			logText += msg
+		}
+		// Add this source's load to the overall load, scaled by the significance.
 		overallLoad += int(float64(sourceLoad) * source.RelativeSignificance)
 	}
 	// Check the overall threshold, if applicable.
-	exceeded, logText := fbr.getThresholdStatus("overall",
-		fbr.ThresholdScore, overallLoad)
-	if exceeded && fbr.isOverallThresholdEnabled() {
-		online = false
+	if fbr.isOverallThresholdEnabled() {
+		exceeded, msg := fbr.getThresholdStatus("overall: ",
+			fbr.ThresholdScore, overallLoad)
+		if exceeded {
+			online = false
+		}
+		logText += msg
 	}
 	// Invert the overall load percentage to give the availability.
 	availability = 100 - overallLoad
 	return
+}
+
+func (fbr *FeedbackResponder) isAnyThresholdEnabled() bool {
+	return fbr.thresholdModeEnum == ThresholdModeAny
 }
 
 func (fbr *FeedbackResponder) isSourceThresholdEnabled() bool {
@@ -967,6 +985,7 @@ func (fbr *FeedbackResponder) CommandMaskToString(commandMask int, enumMask int,
 // from a specified string value, returning an error (and leaving the mode
 // unchanged) if the specified string is invalid.
 func (fbr *FeedbackResponder) ConfigureThresholdMode(name string) (err error) {
+	logrus.Debug("ConfigureThresholdMode: name=" + name)
 	name = strings.ToLower(strings.TrimSpace(name))
 	if name == "" {
 		// Set to default if no threshold string is currently configured.
@@ -985,5 +1004,6 @@ func (fbr *FeedbackResponder) ConfigureThresholdMode(name string) (err error) {
 	}
 	fbr.thresholdModeEnum = mode
 	fbr.ThresholdModeName = name
+	logrus.Debug("ConfigureThresholdMode: name=" + name + " mode=" + strconv.Itoa(int(mode)))
 	return
 }

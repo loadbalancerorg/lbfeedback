@@ -61,7 +61,7 @@ type FeedbackAgent struct {
 
 // PanicDebug specifies if a panic should result in termination
 // or instead be ignored in a parent service via recover().
-var PanicDebug = true
+var PanicDebug = false
 
 // LaunchAgentService creates a new [FeedbackAgent] service and runs it.
 func LaunchAgentService() (exitStatus int) {

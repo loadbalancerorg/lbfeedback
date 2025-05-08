@@ -31,8 +31,8 @@ import (
 // receives observations from a given system metric, and performs
 // configurable trend analysis on these metrics to detect changes in
 // the metric and calculate the appropriate weight score for use in
-// load balancing applications. It provides a novel Z-score algorithm
-// that achieves the best of both worlds between direct feedback
+// load balancing applications. It provides a Z-score algorithm
+// that aims to achieve the best of both worlds between direct feedback
 // where there is a 1-to-1 correspondence between the observed metric
 // and the weight, and a moving average approach, by estimating the
 // slope of the data when a statistically significant trend occurs.
@@ -189,8 +189,7 @@ func (model *StatisticsModel) updateMinMax() {
 	// If we haven't got at least 2 values yet (e.g. 1 or 0)
 	// then the min and max are the last value seen.
 	if model.XCount < 2 {
-		model.XMin = model.XLastValue
-		model.XMax = model.XLastValue
+		model.resetMinMax()
 	} else {
 		// Otherwise, set these based on the new value.
 		if model.XMin > model.XLastValue {
@@ -200,6 +199,13 @@ func (model *StatisticsModel) updateMinMax() {
 			model.XMax = model.XLastValue
 		}
 	}
+}
+
+// resetMinMax sets the current minimum and maximum to the last
+// observed value in the model.
+func (model *StatisticsModel) resetMinMax() {
+	model.XMin = model.XLastValue
+	model.XMax = model.XLastValue
 }
 
 // recalculateMean computes the mean in the current state
@@ -290,6 +296,7 @@ func (model *StatisticsModel) HasObservations() bool {
 func (model *StatisticsModel) RecentreModel() {
 	model.recentreMean()
 	model.recentreZStats()
+	model.resetMinMax()
 	model.Recentred = true
 }
 
