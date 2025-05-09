@@ -64,7 +64,7 @@ const (
 	FlagLogState           = "log-state-changes"
 )
 
-// List of all of the flag names for use in processing the arguments.
+// List of all flag names for use in processing the arguments.
 
 var FlagList = []string{
 	FlagType,
