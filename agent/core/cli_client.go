@@ -64,7 +64,7 @@ const (
 	FlagLogState           = "log-state-changes"
 )
 
-// List of all of the flag names for use in processing the arguments.
+// List of all flag names for use in processing the arguments.
 
 var FlagList = []string{
 	FlagType,
@@ -299,8 +299,9 @@ func ParseArgumentsToRequest(actionName string, actionType string, argv []string
 		case FlagIP:
 			if strVal == "any" {
 				request.ListenIPAddress = StringAddr("*")
+			} else {
+				request.ListenIPAddress = &strVal
 			}
-			request.ListenIPAddress = &strVal
 		case FlagPort:
 			request.ListenPort = &strVal
 		case FlagRequestTimeout:
