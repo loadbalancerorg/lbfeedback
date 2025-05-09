@@ -790,6 +790,7 @@ func (fbr *FeedbackResponder) GetAvailabilityState() (availability int, online b
 	online = true
 	// The sum of all load values from each source, multiplied by the relative significance.
 	overallLoad := 0
+	metricLog, anyLog, overallLog := "", "", ""
 	// Process the current load values for all feedback sources.
 	for _, source := range fbr.FeedbackSources {
 		// Get source load and add into the overall load scaled by its significance.
@@ -802,7 +803,7 @@ func (fbr *FeedbackResponder) GetAvailabilityState() (availability int, online b
 			if exceeded {
 				online = false
 			}
-			logText += msg
+			metricLog += msg + "\n"
 		}
 		// Check if we are looking for any threshold value, and if it has been exceeded.
 		if fbr.isAnyThresholdEnabled() {
@@ -812,20 +813,21 @@ func (fbr *FeedbackResponder) GetAvailabilityState() (availability int, online b
 			if exceeded {
 				online = false
 			}
-			logText += msg
+			anyLog += msg + "\n"
 		}
 		// Add this source's load to the overall load, scaled by the significance.
 		overallLoad += int(float64(sourceLoad) * source.RelativeSignificance)
 	}
 	// Check the overall threshold, if applicable.
 	if fbr.isOverallThresholdEnabled() {
-		exceeded, msg := fbr.getThresholdStatus("overall: ",
+		exceeded, msg := fbr.getThresholdStatus("overall",
 			fbr.ThresholdScore, overallLoad)
 		if exceeded {
 			online = false
 		}
-		logText += msg
+		overallLog += msg + "\n"
 	}
+	logText = anyLog + metricLog + overallLog
 	// Invert the overall load percentage to give the availability.
 	availability = 100 - overallLoad
 	return
@@ -909,7 +911,7 @@ func (fbr *FeedbackResponder) HandleFeedback() (feedback string) {
 		fbr.mutex.Unlock()
 		fbr.SetCommandState(thresholdState, false, HAPEnumNone)
 		if fbr.LogStateChanges {
-			logrus.Info(fbr.getLogHead() + ": " + logMessage)
+			logrus.Info(fbr.getLogHead() + "has changed threshold state:\n" + logMessage)
 		}
 		fbr.mutex.Lock()
 	}
@@ -990,7 +992,6 @@ func (fbr *FeedbackResponder) CommandMaskToString(commandMask int, enumMask int,
 // from a specified string value, returning an error (and leaving the mode
 // unchanged) if the specified string is invalid.
 func (fbr *FeedbackResponder) ConfigureThresholdMode(name string) (err error) {
-	logrus.Debug("ConfigureThresholdMode: name=" + name)
 	name = strings.ToLower(strings.TrimSpace(name))
 	if name == "" {
 		// Set to default if no threshold string is currently configured.
@@ -999,7 +1000,7 @@ func (fbr *FeedbackResponder) ConfigureThresholdMode(name string) (err error) {
 	if (fbr.ProtocolName == ProtocolSecureAPI || fbr.ProtocolName == ProtocolLegacyAPI) &&
 		name != ThresholdStringNone {
 		err = errors.New("no threshold mode other than '" + ThresholdStringNone +
-			"' is invalid for an API responder")
+			"' is valid for an API responder")
 		return
 	}
 	mode, exists := thresholdStringToMode[name]
@@ -1009,6 +1010,5 @@ func (fbr *FeedbackResponder) ConfigureThresholdMode(name string) (err error) {
 	}
 	fbr.thresholdModeEnum = mode
 	fbr.ThresholdModeName = name
-	logrus.Debug("ConfigureThresholdMode: name=" + name + " mode=" + strconv.Itoa(int(mode)))
 	return
 }

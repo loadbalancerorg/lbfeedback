@@ -32,7 +32,7 @@ const (
 	AppIdentifier   string = "lbfeedback"
 
 	// -- Service state constants.
-	// $$ TO DO: Replace this with an enum type.
+	// $$ TO DO: Replace this with an enum.
 
 	ServiceStateStopped int = 1
 	ServiceStateRunning int = 2
@@ -110,9 +110,9 @@ PARAMETERS:
                       'any'     Listen on all ports for the specified IP.
   -request-timeout    Request timeout (ms).
   -response-timeout   Response timeout (ms).
-  -threshold-enabled  Enable HAProxy automatic command threshold (true/false).
   -threshold-max      Maximum load for an online state (percent).
-  -threshold-mode     Mode for automatic command threshold (default 'any'):
+  -threshold-mode     Mode for automatic command threshold (default 'none'):
+                      'none'    All threshold behaviours are disabled.
                       'any'     Down if any metric or overall relative load
                                 exceeds the configured threshold.
                       'overall' Down if the overall relative load exceeds the
@@ -120,6 +120,9 @@ PARAMETERS:
                                 metrics.
                       'metrics' Down if any metric exceeds the configured 
                                 threshold, ignoring the overall relative load.
+  -log-state-changes  Log any changes in threshold state (true/false; default
+                      is false). This should usually be disabled in production
+                      to avoid excessively large log files being generated.
   -command-interval   Time interval to send HAProxy commands for (ms, 
                       default 10000), timed from the first Feedback Request.
   -monitor            Name identifier of a target Monitor.

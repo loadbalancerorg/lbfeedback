@@ -4,7 +4,6 @@
 // Project:		Loadbalancer.org Feedback Agent v5
 // Author: 		Nicholas Turnbull
 //				<nicholas.turnbull@loadbalancer.org>
-// Revision:	1049 (2024-02-15)
 //
 // Copyright (C) 2024 Loadbalancer.org Ltd
 //
@@ -27,7 +26,7 @@ import (
 	"math"
 )
 
-// StatisticsModel provides a cumulative-mode calculation engine that
+// StatisticsModel provides a cumulative-mode calculation model that
 // receives observations from a given system metric, and performs
 // configurable trend analysis on these metrics to detect changes in
 // the metric and calculate the appropriate weight score for use in
@@ -296,7 +295,6 @@ func (model *StatisticsModel) HasObservations() bool {
 func (model *StatisticsModel) RecentreModel() {
 	model.recentreMean()
 	model.recentreZStats()
-	model.resetMinMax()
 	model.Recentred = true
 }
 

@@ -751,7 +751,7 @@ func (agent *FeedbackAgent) AddResponderObject(responder *FeedbackResponder) (er
 func (agent *FeedbackAgent) AddResponder(name string,
 	sources map[string]*FeedbackSource, protocol string, ip string,
 	port string, hapCommands string, thresholdMode string,
-	hapThreshold int) (err error) {
+	hapThreshold int, logStateChanges bool) (err error) {
 	_, nameExists := agent.Responders[name]
 	if nameExists {
 		err = errors.New(
@@ -773,6 +773,7 @@ func (agent *FeedbackAgent) AddResponder(name string,
 		)
 		return
 	}
+	responder.LogStateChanges = logStateChanges
 	agent.Responders[name] = responder
 	return
 }

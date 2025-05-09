@@ -393,6 +393,10 @@ func (agent *FeedbackAgent) APIAddResponder(request *APIRequest) (err error) {
 	if request.CommandList != nil {
 		hapCommands = *request.CommandList
 	}
+	logStateChanges := false
+	if request.LogStateChanges != nil {
+		logStateChanges = *request.LogStateChanges
+	}
 	// Try to add this as a new [FeedbackResponder]. The AddResponder() function will
 	// look for and find the object for the [SystemMonitor] if it exists.
 	err = agent.AddResponder(
@@ -404,6 +408,7 @@ func (agent *FeedbackAgent) APIAddResponder(request *APIRequest) (err error) {
 		hapCommands,
 		thresholdMode,
 		hapThreshold,
+		logStateChanges,
 	)
 	// If we couldn't add the responder (e.g. because the monitor doesn't exist),
 	// fail out to an error.
