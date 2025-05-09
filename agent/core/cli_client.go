@@ -38,6 +38,58 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// Constants to define the flag names used by the CLI.
+
+const (
+	FlagType               = "type"
+	FlagName               = "name"
+	FlagCommandList        = "command-list"
+	FlagProtocol           = "protocol"
+	FlagIP                 = "ip"
+	FlagPort               = "port"
+	FlagRequestTimeout     = "request-timeout"
+	FlagResponseTimeout    = "response-timeout"
+	FlagThresholdMode      = "threshold-mode"
+	FlagThresholdMax       = "threshold-max"
+	FlagCommandInterval    = "command-interval"
+	FlagMonitorName        = "monitor"
+	FlagSourceSignificance = "significance"
+	FlagSourceMaxValue     = "max-value"
+	FlagMetricType         = "metric-type"
+	FlagMetricInterval     = "interval-ms"
+	FlagSampleTime         = "sampling-ms"
+	FlagScriptName         = "script-name"
+	FlagDiskPath           = "disk-path"
+	FlagShapingEnabled     = "smart-shape"
+	FlagLogState           = "log-state-changes"
+)
+
+// List of all of the flag names for use in processing the arguments.
+
+var FlagList = []string{
+	FlagType,
+	FlagName,
+	FlagCommandList,
+	FlagProtocol,
+	FlagIP,
+	FlagPort,
+	FlagRequestTimeout,
+	FlagResponseTimeout,
+	FlagThresholdMode,
+	FlagThresholdMax,
+	FlagCommandInterval,
+	FlagMonitorName,
+	FlagSourceSignificance,
+	FlagSourceMaxValue,
+	FlagMetricType,
+	FlagMetricInterval,
+	FlagSampleTime,
+	FlagScriptName,
+	FlagDiskPath,
+	FlagShapingEnabled,
+	FlagLogState,
+}
+
 // RunClientCLI delivers the client CLI personality of the Feedback Agent.
 func RunClientCLI() (status int) {
 	// Print the CLI masthead.
@@ -119,54 +171,6 @@ func RunClientCLI() (status int) {
 	}
 	println(resultMsg)
 	return
-}
-
-const (
-	FlagType               = "type"
-	FlagName               = "name"
-	FlagCommandList        = "command-list"
-	FlagProtocol           = "protocol"
-	FlagIP                 = "ip"
-	FlagPort               = "port"
-	FlagRequestTimeout     = "request-timeout"
-	FlagResponseTimeout    = "response-timeout"
-	FlagThresholdMode      = "threshold-mode"
-	FlagThresholdMax       = "threshold-max"
-	FlagCommandInterval    = "command-interval"
-	FlagMonitorName        = "monitor-name"
-	FlagSourceSignificance = "significance"
-	FlagSourceMaxValue     = "max-value"
-	FlagMetricType         = "metric-type"
-	FlagMetricInterval     = "interval-ms"
-	FlagSampleTime         = "sampling-ms"
-	FlagScriptName         = "script-name"
-	FlagDiskPath           = "disk-path"
-	FlagShapingEnabled     = "smart-shape"
-	FlagLogState           = "log-state-changes"
-)
-
-var FlagList = []string{
-	FlagType,
-	FlagName,
-	FlagCommandList,
-	FlagProtocol,
-	FlagIP,
-	FlagPort,
-	FlagRequestTimeout,
-	FlagResponseTimeout,
-	FlagThresholdMode,
-	FlagThresholdMax,
-	FlagCommandInterval,
-	FlagMonitorName,
-	FlagSourceSignificance,
-	FlagSourceMaxValue,
-	FlagMetricType,
-	FlagMetricInterval,
-	FlagSampleTime,
-	FlagScriptName,
-	FlagDiskPath,
-	FlagShapingEnabled,
-	FlagLogState,
 }
 
 func CLIHandleAgentAction(actionName string, actionType string, argv []string) (
@@ -258,7 +262,7 @@ func ParseArgumentsToRequest(actionName string, actionType string, argv []string
 		return
 	}
 	// Visit all flags and mark which ones were set.
-	flag.Visit(func(f *flag.Flag) {
+	apiArgs.Visit(func(f *flag.Flag) {
 		foundMap[f.Name] = true
 	})
 	// Create the destination objects for the new request.
