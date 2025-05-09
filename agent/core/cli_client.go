@@ -299,8 +299,9 @@ func ParseArgumentsToRequest(actionName string, actionType string, argv []string
 		case FlagIP:
 			if strVal == "any" {
 				request.ListenIPAddress = StringAddr("*")
+			} else {
+				request.ListenIPAddress = &strVal
 			}
-			request.ListenIPAddress = &strVal
 		case FlagPort:
 			request.ListenPort = &strVal
 		case FlagRequestTimeout:
