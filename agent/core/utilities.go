@@ -125,3 +125,7 @@ func StandardiseNameIdentifier(in string) (out string, err error) {
 	}
 	return
 }
+
+func StringAddr(s string) *string {
+	return &s
+}

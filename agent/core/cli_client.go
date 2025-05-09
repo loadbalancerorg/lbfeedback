@@ -32,6 +32,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/sirupsen/logrus"
@@ -120,104 +121,60 @@ func RunClientCLI() (status int) {
 	return
 }
 
+const (
+	FlagType               = "type"
+	FlagName               = "name"
+	FlagCommandList        = "command-list"
+	FlagProtocol           = "protocol"
+	FlagIP                 = "ip"
+	FlagPort               = "port"
+	FlagRequestTimeout     = "request-timeout"
+	FlagResponseTimeout    = "response-timeout"
+	FlagThresholdMode      = "threshold-mode"
+	FlagThresholdMax       = "threshold-max"
+	FlagCommandInterval    = "command-interval"
+	FlagMonitorName        = "monitor-name"
+	FlagSourceSignificance = "significance"
+	FlagSourceMaxValue     = "max-value"
+	FlagMetricType         = "metric-type"
+	FlagMetricInterval     = "interval-ms"
+	FlagSampleTime         = "sampling-ms"
+	FlagScriptName         = "script-name"
+	FlagDiskPath           = "disk-path"
+	FlagShapingEnabled     = "smart-shape"
+	FlagLogState           = "log-state-changes"
+)
+
+var FlagList = []string{
+	FlagType,
+	FlagName,
+	FlagCommandList,
+	FlagProtocol,
+	FlagIP,
+	FlagPort,
+	FlagRequestTimeout,
+	FlagResponseTimeout,
+	FlagThresholdMode,
+	FlagThresholdMax,
+	FlagCommandInterval,
+	FlagMonitorName,
+	FlagSourceSignificance,
+	FlagSourceMaxValue,
+	FlagMetricType,
+	FlagMetricInterval,
+	FlagSampleTime,
+	FlagScriptName,
+	FlagDiskPath,
+	FlagShapingEnabled,
+	FlagLogState,
+}
+
 func CLIHandleAgentAction(actionName string, actionType string, argv []string) (
 	responseObject *APIResponse, responseJSON string, err error) {
-	// Define the set of flags available for all actions to
-	// process from the CLI. Note that it is the responsibility of
-	// the API to validate that the correct parameters have been supplied.
-	apiArgs := flag.NewFlagSet("", flag.ContinueOnError)
-	apiArgs.Usage = func() {}
-	argType := apiArgs.String("type", "", "")
-	argTargetName := apiArgs.String("name", "", "")
-	argCommandList := apiArgs.String("command-list", "", "")
-
-	// Fields for FeedbackResponder API requests.
-	argProtocolName := apiArgs.String("protocol", "", "")
-	argIPAddress := apiArgs.String("ip", "", "")
-	argListenPort := apiArgs.String("port", "", "")
-	argRequestTimeout := apiArgs.Int("request-timeout", 0, "")
-	argResponseTimeout := apiArgs.Int("response-timeout", 0, "")
-	argThresholdString := apiArgs.String("threshold-mode", "", "")
-	argResponderThreshold := apiArgs.Int("threshold-max", -1, "")
-	argCommandInterval := apiArgs.Int("command-interval", -1, "")
-
-	// Fields for monitor and source API requests.
-	argMonitorName := apiArgs.String("monitor", "", "")
-	argSourceSignificance := apiArgs.Float64("significance", 1.0, "")
-	argSourceMaxValue := apiArgs.Int64("max-value", -1, "")
-	argMetricType := apiArgs.String("metric-type", "", "")
-
-	// Fields for MetricParams configuration. Note that all
-	// of these are String values within metric.go.
-	argSampleTime := apiArgs.String("sampling-ms", "", "")
-	argScriptName := apiArgs.String("script-name", "", "")
-	argDiskPath := apiArgs.String("disk-path", "", "")
-	argShapingEnabledString := apiArgs.String("smart-shape", "", "")
-	argLogStateChangesString := apiArgs.String("log-state-changes", "", "")
-
-	// $$ TO DO: Define help for actions.
-	err = apiArgs.Parse(argv)
-	if err != nil && !errors.Is(err, flag.ErrHelp) {
-		err = errors.New("one or more parameters are invalid; " +
-			"use the 'help' command for syntax")
+	// Parse the CLI arguments into a Feedback Agent request.
+	request, err := ParseArgumentsToRequest(actionName, actionType, argv)
+	if err != nil {
 		return
-	}
-
-	// If no action type was specified, a -type flag can be
-	// set instead; handle this situation.
-	if actionType == "" && argType != nil && *argType != "" {
-		actionType = *argType
-	}
-
-	// Process parameters where required.
-	argCommandInterval = PointerHandleIntValue(argCommandInterval)
-	argResponderThreshold = PointerHandleIntValue(argResponderThreshold)
-	argCommandList = PointerHandleStringValue(argCommandList)
-	argSourceMaxValue = PointerHandleInt64Value(argSourceMaxValue)
-	argShapingEnabled := PointerHandleBoolString(argShapingEnabledString)
-	argLogStateChanges := PointerHandleBoolString(argLogStateChangesString)
-
-	// Process any metric parameters specified on the CLI.
-	params := MetricParams{}
-	if argSampleTime != nil && *argSampleTime != "" {
-		params[ParamKeySampleTime] = *argSampleTime
-	}
-	if argScriptName != nil && *argScriptName != "" {
-		params[ParamKeyScriptName] = *argScriptName
-	}
-	if argDiskPath != nil && *argDiskPath != "" {
-		params[ParamKeyDiskPath] = *argDiskPath
-	}
-
-	// Set fields into the new API request; the API will be responsible
-	// for determining the validity of options for a request.
-	request := APIRequest{
-		Action:             actionName,
-		Type:               actionType,
-		TargetName:         *argTargetName,
-		ProtocolName:       argProtocolName,
-		ListenIPAddress:    argIPAddress,
-		ListenPort:         argListenPort,
-		RequestTimeout:     argRequestTimeout,
-		ResponseTimeout:    argResponseTimeout,
-		CommandList:        argCommandList,
-		ThresholdMode:      argThresholdString,
-		ThresholdScore:     argResponderThreshold,
-		CommandInterval:    argCommandInterval,
-		SourceMonitorName:  argMonitorName,
-		SourceSignificance: argSourceSignificance,
-		SourceMaxValue:     argSourceMaxValue,
-		MetricType:         argMetricType,
-		MetricInterval:     argCommandInterval,
-		MetricParams:       &params,
-		SmartShape:         argShapingEnabled,
-		LogStateChanges:    argLogStateChanges,
-	}
-
-	// Workaround for * being expanded into a glob in bash
-	if *request.ListenIPAddress == "any" {
-		asterisk := "*"
-		request.ListenIPAddress = &asterisk
 	}
 	// $ TO DO: Allow user to specify the API IP, port and key as flags,
 	// or alternatively the config dir and/or the config filename.
@@ -275,6 +232,105 @@ func CLIHandleAgentAction(actionName string, actionType string, argv []string) (
 	}
 	responseJSON = string(responseBytes)
 	responseObject, err = UnmarshalAPIResponse(responseJSON)
+	return
+}
+
+func ParseArgumentsToRequest(actionName string, actionType string, argv []string) (request APIRequest, err error) {
+	// Define the set of flags available for all actions to
+	// parse from the input arguments. Note that it is the responsibility of
+	// the API to validate that the correct parameters have been supplied.
+	apiArgs := flag.NewFlagSet("", flag.ContinueOnError)
+	apiArgs.Usage = func() {}
+	// Initialise the argMap, which provides a map of flag names and their
+	// resulting value pointers that will be set on parsing by the 'flag'
+	// package.
+	argMap := make(map[string]*string)
+	foundMap := make(map[string]bool)
+	for _, argKey := range FlagList {
+		argMap[argKey] = apiArgs.String(argKey, "", "")
+	}
+	// Parse the incoming command line parameters.
+	err = apiArgs.Parse(argv)
+	// Exit if any parameters were invalid.
+	if err != nil && !errors.Is(err, flag.ErrHelp) {
+		err = errors.New("one or more parameters are invalid; " +
+			"use the 'help' command for syntax")
+		return
+	}
+	// Visit all flags and mark which ones were set.
+	flag.Visit(func(f *flag.Flag) {
+		foundMap[f.Name] = true
+	})
+	// Create the destination objects for the new request.
+	params := MetricParams{}
+	request = APIRequest{
+		Action:       actionName,
+		Type:         actionType,
+		MetricParams: &params,
+	}
+	// Iterate through all the flags and process their values, if specified.
+	for argKey, argString := range argMap {
+		strVal := strings.TrimSpace(*argString)
+		// Skip this key (leaving the JSON field as nil) if it wasn't specified
+		// or its trimmed value consists of an empty string.
+		if !foundMap[argKey] || strVal == "" {
+			continue
+		}
+		// Convert the argument string into our range of possible value types.
+		intVal, _ := strconv.Atoi(strVal)
+		int64Val := int64(intVal)
+		floatVal, _ := strconv.ParseFloat(strVal, 64)
+		boolVal, _ := strconv.ParseBool(strVal)
+
+		// Map this CLI flag into the JSON request object field based on the flag key.
+		switch argKey {
+		case FlagType:
+			request.Type = strVal
+		case FlagName:
+			request.TargetName = strVal
+		case FlagCommandList:
+			request.CommandList = &strVal
+		case FlagProtocol:
+			request.ProtocolName = &strVal
+		case FlagIP:
+			if strVal == "any" {
+				request.ListenIPAddress = StringAddr("*")
+			}
+			request.ListenIPAddress = &strVal
+		case FlagPort:
+			request.ListenPort = &strVal
+		case FlagRequestTimeout:
+			request.RequestTimeout = &intVal
+		case FlagResponseTimeout:
+			request.ResponseTimeout = &intVal
+		case FlagThresholdMode:
+			request.ThresholdMode = &strVal
+		case FlagThresholdMax:
+			request.ThresholdScore = &intVal
+		case FlagCommandInterval:
+			request.CommandInterval = &intVal
+		case FlagMonitorName:
+			request.SourceMonitorName = &strVal
+		case FlagSourceSignificance:
+			request.SourceSignificance = &floatVal
+		case FlagSourceMaxValue:
+			request.SourceMaxValue = &int64Val
+		case FlagMetricType:
+			request.MetricType = &strVal
+		case FlagMetricInterval:
+			request.MetricInterval = &intVal
+		case FlagSampleTime:
+			params[ParamKeySampleTime] = strconv.Itoa(intVal)
+		case FlagScriptName:
+			params[ParamKeyScriptName] = strVal
+		case FlagDiskPath:
+			params[ParamKeyDiskPath] = strVal
+		case FlagShapingEnabled:
+			request.SmartShape = &boolVal
+		case FlagLogState:
+			request.LogStateChanges = &boolVal
+		}
+	}
 	return
 }
 
