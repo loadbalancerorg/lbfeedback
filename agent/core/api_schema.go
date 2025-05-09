@@ -20,7 +20,7 @@
 
 package agent
 
-// Defines an [APIRequest] received from a client to the agent.
+// APIRequest defines a request received from a client to the agent.
 type APIRequest struct {
 	// Global API request fields that apply to any request.
 	APIKey     string `json:"api-key,omitempty"`
@@ -29,40 +29,42 @@ type APIRequest struct {
 	Type       string `json:"type,omitempty"`
 	TargetName string `json:"target-name,omitempty"`
 
-	// API fields for [FeedbackResponder] operations.
-	ProtocolName     *string                     `json:"protocol,omitempty"`
-	ListenIPAddress  *string                     `json:"ip,omitempty"`
-	ListenPort       *string                     `json:"port,omitempty"`
-	FeedbackSources  *map[string]*FeedbackSource `json:"feedback-sources,omitempty"`
-	RequestTimeout   *int                        `json:"request-timeout,omitempty"`
-	ResponseTimeout  *int                        `json:"response-timeout,omitempty"`
-	CommandList      *string                     `json:"command-list,omitempty"`
-	CommandInterval  *int                        `json:"command-interval,omitempty"`
-	ThresholdEnabled *bool                       `json:"threshold-enabled,omitempty"`
-	ThresholdScore   *int                        `json:"threshold-min,omitempty"`
+	// API fields for FeedbackResponder operations.
+	ProtocolName    *string                     `json:"protocol,omitempty"`
+	ListenIPAddress *string                     `json:"ip,omitempty"`
+	ListenPort      *string                     `json:"port,omitempty"`
+	FeedbackSources *map[string]*FeedbackSource `json:"feedback-sources,omitempty"`
+	RequestTimeout  *int                        `json:"request-timeout,omitempty"`
+	ResponseTimeout *int                        `json:"response-timeout,omitempty"`
+	CommandList     *string                     `json:"command-list,omitempty"`
+	CommandInterval *int                        `json:"command-interval,omitempty"`
+	ThresholdMode   *string                     `json:"threshold-mode,omitempty"`
+	ThresholdScore  *int                        `json:"threshold-max,omitempty"`
+	SmartShape      *bool                       `json:"smart-shape,omitempty"`
+	LogStateChanges *bool                       `json:"log-state-changes,omitempty"`
 
-	// API fields for [SourceMonitor] operations.
+	// API fields for SourceMonitor operations.
 	SourceMonitorName  *string  `json:"monitor,omitempty"`
 	SourceSignificance *float64 `json:"significance,omitempty"`
 	SourceMaxValue     *int64   `json:"max-value,omitempty"`
 
-	// API fields for [SystemMonitor] operations.
+	// API fields for SystemMonitor operations.
 	MetricType     *string       `json:"metric-type,omitempty"`
 	MetricInterval *int          `json:"interval-ms,omitempty"`
 	MetricParams   *MetricParams `json:"metric-config,omitempty"`
 }
 
-// Defines an [APIResponse] to be sent from the agent to a client.
+// APIResponse defines a response to be sent from the agent to a client.
 type APIResponse struct {
-	APIName         string                     `json:"service-name"`
+	APIName         string                     `json:"service"`
 	Version         string                     `json:"version"`
 	ID              *int                       `json:"id,omitempty"`
 	Tag             string                     `json:"tag,omitempty"`
 	Request         *APIRequest                `json:"request,omitempty"`
 	Success         bool                       `json:"success"`
-	Output          string                     `json:"output,omitempty"`
 	Error           string                     `json:"error-name,omitempty"`
 	Message         string                     `json:"message,omitempty"`
+	Output          string                     `json:"output,omitempty"`
 	AgentConfig     *FeedbackAgent             `json:"current-config,omitempty"`
 	ServiceStatus   []APIServiceStatus         `json:"status,omitempty"`
 	FeedbackSources map[string]*FeedbackSource `json:"feedback-sources,omitempty"`
@@ -74,6 +76,8 @@ type APIServiceStatus struct {
 	ServiceStatus string `json:"status"`
 }
 
-// -------------------------------------------------------------------
-// END OF FILE
-// -------------------------------------------------------------------
+type APIConfig struct {
+	IPAddress string
+	Port      string
+	Key       string
+}

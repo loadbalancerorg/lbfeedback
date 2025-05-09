@@ -40,10 +40,10 @@ import (
 // #######################################################################
 
 // FeedbackResponder implements a Feedback Responder service which uses
-// the specified [ProtocolConnector] to listen for and respond to clients
-// from data obtained via the associated [SystemMonitor] objects.
+// the specified ProtocolConnector to listen for and respond to clients
+// from data obtained via the associated SystemMonitor objects.
 type FeedbackResponder struct {
-	// -- JSON configuration fields for [FeedbackResponder].
+	// -- JSON configuration fields for the FeedbackResponder object.
 	ProtocolName          string                     `json:"protocol"`
 	ListenIPAddress       string                     `json:"ip"`
 	ListenPort            string                     `json:"port"`
@@ -52,9 +52,10 @@ type FeedbackResponder struct {
 	ResponseTimeout       time.Duration              `json:"response-timeout,omitempty"`
 	HAProxyCommands       string                     `json:"haproxy-commands,omitempty"`
 	CommandInterval       int                        `json:"command-interval,omitempty"`
-	ThresholdEnabled      bool                       `json:"threshold-enabled"`
-	ThresholdScore        int                        `json:"threshold-score,omitempty"`
+	ThresholdScore        int                        `json:"global-threshold,omitempty"`
+	ThresholdModeName     string                     `json:"threshold-mode,omitempty"`
 	EnableOfflineInterval bool                       `json:"enable-offline-interval,omitempty"`
+	LogStateChanges       bool                       `json:"log-state-changes,omitempty"`
 
 	// -- Exported configuration fields.
 	ResponderName string            `json:"-"`
@@ -66,11 +67,6 @@ type FeedbackResponder struct {
 	runState      bool
 	mutex         *sync.Mutex
 	statusChannel chan int
-
-	// Lookup tables for command enums and strings.
-	commandToEnum    map[string]int
-	enumToCommand    map[int]string
-	commandEnumOrder []int
 
 	// The last command state (online or offline) seen.
 	onlineState bool
@@ -87,17 +83,56 @@ type FeedbackResponder struct {
 	// allow it to be interrupted if the feedback score falls
 	// within the "up" threshold range?
 	forceCommandState bool
+
+	// Currently configured threshold mode (from string).
+	thresholdModeEnum ThresholdMode
 }
 
-// Defines a source mapping for a [FeedbackResponder] to a
-// [SystemMonitor] with a specified significance and maximum value.
+// -- Constants for threshold functionality.
+
+type ThresholdMode int
+
+const (
+	ThresholdModeAny ThresholdMode = iota
+	ThresholdModeNone
+	ThresholdModeOverallOnly
+	ThresholdModeMetricOnly
+)
+const (
+	ThresholdStringAny         = "any"
+	ThresholdStringNone        = "none"
+	ThresholdStringOverallOnly = "overall"
+	ThresholdStringMetricOnly  = "metric"
+)
+
+var thresholdStringToMode = map[string]ThresholdMode{
+	ThresholdStringAny:         ThresholdModeAny,
+	ThresholdStringNone:        ThresholdModeNone,
+	ThresholdStringOverallOnly: ThresholdModeOverallOnly,
+	ThresholdStringMetricOnly:  ThresholdModeMetricOnly,
+}
+
+// FeedbackSource defines a source mapping for a FeedbackResponder to a
+// SystemMonitor with a specified significance and maximum value.
 type FeedbackSource struct {
 	Significance         float64        `json:"significance"`
 	MaxValue             int64          `json:"max-value"`
+	Threshold            int64          `json:"source-threshold,omitempty"`
 	Monitor              *SystemMonitor `json:"-"`
 	RelativeSignificance float64        `json:"-"`
 }
 
+const (
+	// Default interval for which to send HAProxy commands after a
+	// state change. This has been defined as 10 seconds as per MT,
+	// but may likely need to be increased by modifying the
+	// configuration for many use cases. This is presumably intended
+	// to be the most conservative value.
+
+	DefaultCommandInterval = 10
+)
+
+// -- Constants for HAProxy command handling.
 const (
 	// Flagged enums for sending composite feedback commands to HAProxy.
 	// These are designed with two properties; one, that the commands are
@@ -108,69 +143,96 @@ const (
 	// done by the order of the enums and with a positive flag being
 	// included for both online and offline states.
 
-	HAPEnumNone    = 0x000
-	HAPMaskState   = 0xF00
-	HAPMaskCommand = 0x0FF
-	HAPMaskAll     = 0xFFF
-	HAPOnlineFlag  = 0x100
-	HAPOfflineFlag = 0x200
-	HAPEnumUp      = 0x101
-	HAPEnumReady   = 0x102
-	HAPEnumDown    = 0x204
-	HAPEnumDrain   = 0x208
-	HAPEnumFail    = 0x210
-	HAPEnumMaint   = 0x220
-	HAPEnumStopped = 0x240
+	HAPEnumNone        = 0x000
+	HAPMaskCommand     = 0x0FF
+	HAPMaskAll         = 0xFFF
+	HAPOnlineFlag      = 0x100
+	HAPOfflineFlag     = 0x200
+	HAPEnumUp          = 0x101
+	HAPEnumReady       = 0x102
+	HAPEnumDown        = 0x204
+	HAPEnumDrain       = 0x208
+	HAPEnumFail        = 0x210
+	HAPEnumMaintenance = 0x220
+	HAPEnumStopped     = 0x240
 
 	// As per the previous Loadbalancer.org Feedback Agent, the
 	// default online command is "up ready" and the default
 	// command to offline is "drain" (as requested by MT).
+
 	HAPDefaultOnline  = HAPEnumUp | HAPEnumReady
 	HAPDefaultOffline = HAPEnumDrain
 
 	// Strings for sending composite feedback commands to HAProxy.
-	HAPCommandNone    = ""
-	HAPCommandUp      = "up"
-	HAPCommandReady   = "ready"
-	HAPCommandDown    = "down"
-	HAPCommandDrain   = "drain"
-	HAPCommandFail    = "fail"
-	HAPCommandMaint   = "maint"
-	HAPCommandStopped = "stopped"
+
+	HAPCommandNone        = ""
+	HAPCommandUp          = "up"
+	HAPCommandReady       = "ready"
+	HAPCommandDown        = "down"
+	HAPCommandDrain       = "drain"
+	HAPCommandFail        = "fail"
+	HAPCommandMaintenance = "maint"
+	HAPCommandStopped     = "stopped"
 
 	// JSON configuration settings for group options (default, none).
+
 	HAPConfigDefault = "default"
 	HAPConfigNone    = "none"
-
-	// Default interval for which to send HAProxy commands after a
-	// state change. This has been defined as 10 seconds as per MT,
-	// but may likely need to be increased by modifying the
-	// configuration for many use cases. This is presumably intended
-	// to be the most conservative value.
-	DefaultCommandInterval = 10
 )
 
-// Constructor for [FeedbackResponder], which must be used when creating
-// a new responder object.
+var commandToEnum = map[string]int{
+	HAPCommandNone:        HAPEnumNone,
+	HAPCommandUp:          HAPEnumUp,
+	HAPCommandReady:       HAPEnumReady,
+	HAPCommandDown:        HAPEnumDown,
+	HAPCommandDrain:       HAPEnumDrain,
+	HAPCommandFail:        HAPEnumFail,
+	HAPCommandMaintenance: HAPEnumMaintenance,
+	HAPCommandStopped:     HAPEnumStopped,
+}
+
+var enumToCommand = map[int]string{
+	HAPEnumNone:        HAPCommandNone,
+	HAPEnumUp:          HAPCommandUp,
+	HAPEnumReady:       HAPCommandReady,
+	HAPEnumDown:        HAPCommandDown,
+	HAPEnumDrain:       HAPCommandDrain,
+	HAPEnumFail:        HAPCommandFail,
+	HAPEnumMaintenance: HAPCommandMaintenance,
+	HAPEnumStopped:     HAPCommandStopped,
+}
+var commandEnumOrder = []int{
+	HAPEnumNone,
+	HAPEnumUp,
+	HAPEnumReady,
+	HAPEnumDown,
+	HAPEnumDrain,
+	HAPEnumFail,
+	HAPEnumMaintenance,
+	HAPEnumStopped,
+}
+
+// NewResponder creates a new FeedbackResponder object. This constructor must
+// be used when creating a new responder object.
 func NewResponder(name string, sources map[string]*FeedbackSource,
 	protocol string, ip string, port string, commands string,
-	enableThreshold bool, threshold int, agent *FeedbackAgent) (
+	thresholdMode string, threshold int, agent *FeedbackAgent) (
 	result *FeedbackResponder, err error) {
 	if sources == nil {
 		sources = make(map[string]*FeedbackSource)
 	}
 	// -- Create a new responder containing the base settings.
 	fbr := &FeedbackResponder{
-		ProtocolName:     protocol,
-		ListenIPAddress:  ip,
-		ListenPort:       port,
-		FeedbackSources:  sources,
-		ResponderName:    name,
-		ParentAgent:      agent,
-		HAProxyCommands:  commands,
-		ThresholdEnabled: enableThreshold,
-		ThresholdScore:   threshold,
-		CommandInterval:  DefaultCommandInterval,
+		ProtocolName:      protocol,
+		ListenIPAddress:   ip,
+		ListenPort:        port,
+		FeedbackSources:   sources,
+		ResponderName:     name,
+		ParentAgent:       agent,
+		HAProxyCommands:   commands,
+		ThresholdModeName: thresholdMode,
+		ThresholdScore:    threshold,
+		CommandInterval:   DefaultCommandInterval,
 	}
 	fbr.mutex = &sync.Mutex{}
 	err = fbr.Initialise()
@@ -180,43 +242,7 @@ func NewResponder(name string, sources map[string]*FeedbackSource,
 	return
 }
 
-// Create maps and order array for the HAProxy command state
-// management functions. These cannot be set as constants in
-// Go, unfortunately.
-func (fbr *FeedbackResponder) SetHAPCommandMaps() {
-	fbr.commandToEnum = map[string]int{
-		HAPCommandNone:    HAPEnumNone,
-		HAPCommandUp:      HAPEnumUp,
-		HAPCommandReady:   HAPEnumReady,
-		HAPCommandDown:    HAPEnumDown,
-		HAPCommandDrain:   HAPEnumDrain,
-		HAPCommandFail:    HAPEnumFail,
-		HAPCommandMaint:   HAPEnumMaint,
-		HAPCommandStopped: HAPEnumStopped,
-	}
-	fbr.enumToCommand = map[int]string{
-		HAPEnumNone:    HAPCommandNone,
-		HAPEnumUp:      HAPCommandUp,
-		HAPEnumReady:   HAPCommandReady,
-		HAPEnumDown:    HAPCommandDown,
-		HAPEnumDrain:   HAPCommandDrain,
-		HAPEnumFail:    HAPCommandFail,
-		HAPEnumMaint:   HAPCommandMaint,
-		HAPEnumStopped: HAPCommandStopped,
-	}
-	fbr.commandEnumOrder = []int{
-		HAPEnumNone,
-		HAPEnumUp,
-		HAPEnumReady,
-		HAPEnumDown,
-		HAPEnumDrain,
-		HAPEnumFail,
-		HAPEnumMaint,
-		HAPEnumStopped,
-	}
-}
-
-// Initialises this [FeedbackResponder] and configures defaults.
+// Initialise sets up this FeedbackResponder and configures defaults.
 func (fbr *FeedbackResponder) Initialise() (err error) {
 	// Initialise the mutex, if required.
 	if fbr.mutex == nil {
@@ -224,7 +250,6 @@ func (fbr *FeedbackResponder) Initialise() (err error) {
 	}
 	fbr.mutex.Lock()
 	defer fbr.mutex.Unlock()
-	fbr.SetHAPCommandMaps()
 	if fbr.FeedbackSources == nil {
 		fbr.FeedbackSources = make(map[string]*FeedbackSource)
 	}
@@ -254,19 +279,21 @@ func (fbr *FeedbackResponder) Initialise() (err error) {
 	if fbr.ProtocolName == ProtocolSecureAPI || len(fbr.FeedbackSources) < 1 {
 		return
 	}
-	commands := fbr.HAProxyCommands
-	interval := fbr.CommandInterval
-	// This requires unlocking the mutex, and then relocking due to our defer.
+	// This requires unlocking the mutex, and then locking again due to our defer.
 	fbr.mutex.Unlock()
 	err = fbr.initialiseSources()
 	if err != nil {
 		return
 	}
-	fbr.ConfigureCommands(commands, true, false)
+	err = fbr.ConfigureCommands(fbr.HAProxyCommands, true, false)
 	if err != nil {
 		return
 	}
-	fbr.ConfigureInterval(interval)
+	err = fbr.ConfigureInterval(fbr.CommandInterval)
+	if err != nil {
+		return
+	}
+	err = fbr.ConfigureThresholdMode(fbr.ThresholdModeName)
 	if err != nil {
 		return
 	}
@@ -297,7 +324,13 @@ func (fbr *FeedbackResponder) ConfigureInterval(interval int) (err error) {
 				"interval; use '0' to always send (interval disabled).",
 		)
 	}
-	fbr.setInterval(interval)
+	fbr.mutex.Lock()
+	defer fbr.mutex.Unlock()
+	if interval < 1 {
+		fbr.CommandInterval = 0
+	} else {
+		fbr.CommandInterval = interval
+	}
 	return
 }
 
@@ -331,6 +364,13 @@ func (fbr *FeedbackResponder) initialiseSources() (err error) {
 			)
 			return
 		}
+		if source.Threshold < 0 || source.Threshold > 100 {
+			err = errors.New(
+				"'" + key + "': threshold out of range: " +
+					"must be between 0 and 100",
+			)
+			return
+		}
 		source.Monitor = monitor
 		// Add this significance to the total so that we can calculate
 		// the fraction that each monitor represents of the total significance
@@ -339,10 +379,8 @@ func (fbr *FeedbackResponder) initialiseSources() (err error) {
 		// Log details of this source so the user can see what's configured
 		// when the agent is configured.
 	}
-	logrus.Info(
-		fbr.getLogHead() + ": calculating relative significances, " +
-			"total " + fmt.Sprintf("%.2f", totalSignificance) + ".",
-	)
+	logrus.Info(fbr.getLogHead() + ": calculating relative significances, " +
+		"total " + fmt.Sprintf("%.2f", totalSignificance) + ".")
 
 	// Set the scaled significance for each source monitor, i.e. the fraction
 	// of the total significance values specified that each monitor represents.
@@ -359,9 +397,8 @@ func (fbr *FeedbackResponder) initialiseSources() (err error) {
 	return
 }
 
-func (fbr *FeedbackResponder) AddFeedbackSource(
-	name string,
-	significance *float64, maxValue *int64) (err error) {
+func (fbr *FeedbackResponder) AddFeedbackSource(name string,
+	significance *float64, maxValue *int64, threshold *int) (err error) {
 	fbr.mutex.Lock()
 	defer fbr.mutex.Unlock()
 	name = strings.TrimSpace(name)
@@ -389,29 +426,40 @@ func (fbr *FeedbackResponder) AddFeedbackSource(
 		)
 		return
 	}
-	if significance == nil {
-		*significance = 1.0
+	sigValue := 1.0
+	if significance != nil {
+		sigValue = *significance
 	}
-	var metricMax int64
+	metricMax := int64(mon.SysMetric.GetDefaultMax())
 	if maxValue != nil {
 		metricMax = *maxValue
-	} else {
-		metricMax = int64(mon.SysMetric.GetDefaultMax())
-
+	}
+	// Default threshold value is 0 (ignore).
+	thresholdValue := 0
+	if threshold != nil {
+		thresholdValue = *threshold
 	}
 	newSource := FeedbackSource{
 		Monitor:      mon,
-		Significance: *significance,
+		Significance: sigValue,
 		MaxValue:     metricMax,
+		Threshold:    int64(thresholdValue),
 	}
 	fbr.FeedbackSources[name] = &newSource
 	fbr.mutex.Unlock()
+	// The initialiseSources() method of the responder also handles validation
+	// of the specified parameters.
 	err = fbr.initialiseSources()
+	if err != nil {
+		// Delete the source if it failed validation.
+		delete(fbr.FeedbackSources, name)
+	}
 	fbr.mutex.Lock()
 	return
 }
 
-func (fbr *FeedbackResponder) EditFeedbackSource(name string, significance *float64, maxValue *int64) (err error) {
+func (fbr *FeedbackResponder) EditFeedbackSource(name string, significance *float64,
+	maxValue *int64, threshold *int) (err error) {
 	fbr.mutex.Lock()
 	defer fbr.mutex.Unlock()
 	source, exists := fbr.FeedbackSources[name]
@@ -423,29 +471,23 @@ func (fbr *FeedbackResponder) EditFeedbackSource(name string, significance *floa
 		)
 		return
 	}
+	unedited := *source
 	if significance != nil {
-		if *significance < 0.0 || *significance > 1.0 {
-			err = errors.New(
-				fbr.getLogHead() +
-					": significance out of range",
-			)
-			return
-		}
 		source.Significance = *significance
 	}
 	if maxValue != nil {
-		if *maxValue < 0 {
-			err = errors.New(
-				fbr.getLogHead() +
-					": max value out of range",
-			)
-			return
-		}
 		source.MaxValue = *maxValue
+	}
+	if threshold != nil {
+		source.Threshold = int64(*threshold)
 	}
 	fbr.FeedbackSources[name] = source
 	fbr.mutex.Unlock()
 	err = fbr.initialiseSources()
+	// If initialisation fails, revert the change
+	if err != nil {
+		fbr.FeedbackSources[name] = &unedited
+	}
 	fbr.mutex.Lock()
 	return
 }
@@ -469,9 +511,10 @@ func (fbr *FeedbackResponder) DeleteFeedbackSource(name string) (err error) {
 	return
 }
 
-// Configures the HAProxy command parameters for this [FeedbackResponder],
-// based on whether this should replace any commands currently set and if
-// the list of commands provided should be removed rather than added.
+// setHAPCommandMask configures the HAProxy command parameters for this
+// FeedbackResponder, based on whether this should replace any commands
+// currently set and if the list of commands provided should be removed
+// rather than added.
 func (fbr *FeedbackResponder) setHAPCommandMask(commands string,
 	replace bool, unset bool) (err error) {
 	fbr.mutex.Lock()
@@ -493,7 +536,7 @@ func (fbr *FeedbackResponder) setHAPCommandMask(commands string,
 		// Look up each command and translate into a mask (if valid).
 		split := strings.Split(trimmed, " ")
 		for _, command := range split {
-			enum, exists := fbr.commandToEnum[command]
+			enum, exists := commandToEnum[command]
 			if !exists {
 				err = errors.New(
 					"invalid HAProxy feedback command: '" +
@@ -507,7 +550,7 @@ func (fbr *FeedbackResponder) setHAPCommandMask(commands string,
 	}
 	// Mask off the enum flags (as we don't want these in the field)
 	changeMask &= HAPMaskCommand
-	// If setting these commands, OR the change mask into into the current
+	// If setting these commands, OR the change mask into the current
 	// command mask, otherwise AND NOT to unset them.
 	if replace {
 		fbr.configCommandMask = changeMask
@@ -530,7 +573,7 @@ func (fbr *FeedbackResponder) setHAPCommandMask(commands string,
 	return
 }
 
-// Copies this [FeedbackResponder] into a new object.
+// Copy copies this FeedbackResponder into a new object.
 func (fbr *FeedbackResponder) Copy() (copy FeedbackResponder) {
 	fbr.mutex.Lock()
 	defer fbr.mutex.Unlock()
@@ -540,7 +583,7 @@ func (fbr *FeedbackResponder) Copy() (copy FeedbackResponder) {
 	return
 }
 
-// Parses a network port into a sanitised version, returning
+// ParseNetworkPort parses a network port into a sanitised version, returning
 // an error if it cannot be parsed.
 func ParseNetworkPort(port string) (result string, err error) {
 	// Validate and sanitise port
@@ -575,7 +618,7 @@ func ParseIPAddress(ip string) (result string, err error) {
 	return
 }
 
-// Starts the [FeedbackResponder] service, returning an error in the event
+// Start starts the FeedbackResponder service, returning an error in the event
 // of failure, by launching the main code of the service as a goroutine.
 func (fbr *FeedbackResponder) Start() (err error) {
 	fbr.mutex.Lock()
@@ -589,11 +632,15 @@ func (fbr *FeedbackResponder) Start() (err error) {
 				"currently has no monitor sources configured.",
 		)
 	}
+	// Create a new channel for us to know when the worker has initialised or failed.
 	initChannel := make(chan int)
+	// Launch the worker goroutine for this FeedbackResponder.
 	go fbr.run(initChannel)
 	fbr.mutex.Unlock()
+	// Wait on a result from the initialisation channel.
 	result := <-initChannel
 	fbr.mutex.Lock()
+	// Log the appropriate status.
 	if result == ServiceStateRunning && fbr.LastError == nil {
 		logLine += "has started (" + strings.ToUpper(fbr.ProtocolName) +
 			" on " + fbr.ListenIPAddress + ":" + fbr.ListenPort + ")."
@@ -602,11 +649,12 @@ func (fbr *FeedbackResponder) Start() (err error) {
 		logLine += "failed to start, error: " + fbr.LastError.Error()
 		logrus.Error(logLine)
 	}
+	// Return whatever the shared field holds for the worker error.
 	err = fbr.LastError
 	return
 }
 
-// Attempts to restart the [FeedbackResponder] service.
+// Restart attempts to restart the FeedbackResponder service.
 func (fbr *FeedbackResponder) Restart() (err error) {
 	if fbr.IsRunning() {
 		err = fbr.Stop()
@@ -618,7 +666,7 @@ func (fbr *FeedbackResponder) Restart() (err error) {
 	return
 }
 
-// Stops the service from running.
+// Stop stops the service from running.
 func (fbr *FeedbackResponder) Stop() (err error) {
 	if fbr.IsRunning() {
 		fbr.mutex.Lock()
@@ -636,7 +684,7 @@ func (fbr *FeedbackResponder) Stop() (err error) {
 	return
 }
 
-// Returns whether this [FeedbackResponder] is running or not.
+// IsRunning returns whether this FeedbackResponder is running or not.
 func (fbr *FeedbackResponder) IsRunning() (state bool) {
 	fbr.mutex.Lock()
 	defer fbr.mutex.Unlock()
@@ -644,14 +692,15 @@ func (fbr *FeedbackResponder) IsRunning() (state bool) {
 	return
 }
 
-// The run function to call when the service starts; e.g.
-// the worker thread.
+// run is the function to call when the service starts; e.g.
+// the worker thread invoked using 'go'.
 func (fbr *FeedbackResponder) run(initChannel chan int) {
+	if initChannel == nil {
+		logrus.Error("FeedbackResponder: run: fatal: invalid channel")
+		return
+	}
 	// Start by obtaining the mutex lock before doing anything else.
 	fbr.mutex.Lock()
-	if initChannel == nil {
-		fbr.LastError = errors.New("failed; missing channel")
-	}
 	// Deferred actions to always perform when this worker
 	// goroutine terminates.
 	defer func() {
@@ -663,6 +712,7 @@ func (fbr *FeedbackResponder) run(initChannel chan int) {
 		fbr.mutex.Unlock()
 		initChannel <- ServiceStateStopped
 	}()
+	// Check to see if we're already in a run state
 	if fbr.runState {
 		fbr.LastError = errors.New("already running")
 		return
@@ -673,7 +723,7 @@ func (fbr *FeedbackResponder) run(initChannel chan int) {
 	fbr.runState = true
 	fbr.mutex.Unlock()
 	// Initialise the current command state of the responder.
-	fbr.SetHAPCommandState(true, false, HAPEnumNone)
+	fbr.SetCommandState(true, false, HAPEnumNone)
 	// -- We are now running.
 	// Announce that we are now running to whatever called us.
 	fbr.statusChannel <- ServiceStateRunning
@@ -686,14 +736,13 @@ func (fbr *FeedbackResponder) run(initChannel chan int) {
 	logrus.Info(fbr.getLogHead() + "has stopped.")
 }
 
-// Utility function for the start of log entries for this [FeedbackResponder].
+// getLogHead is a utility function for the start of log entries for this FeedbackResponder.
 func (fbr *FeedbackResponder) getLogHead() string {
 	return "Responder '" + fbr.ResponderName + "' "
 }
 
-// Sets the current HAProxy command state, resetting the state expiry.
-func (fbr *FeedbackResponder) SetHAPCommandState(isOnline bool, force bool,
-	overrideMask int) {
+// SetCommandState sets the current responder command state, resetting the state expiry.
+func (fbr *FeedbackResponder) SetCommandState(isOnline bool, force bool, overrideMask int) {
 	fbr.mutex.Lock()
 	defer fbr.mutex.Unlock()
 	fbr.onlineState = isOnline
@@ -702,117 +751,173 @@ func (fbr *FeedbackResponder) SetHAPCommandState(isOnline bool, force bool,
 	fbr.resetStateExpiry()
 }
 
-// Resets the current HAProxy command state expiry.
+// resetStateExpiry resets the current command state expiry only.
 func (fbr *FeedbackResponder) resetStateExpiry() {
 	fbr.stateExpiry = time.Now().Add(
 		time.Second * time.Duration(fbr.CommandInterval),
 	)
 }
 
-// Sets the command threshold for this [FeedbackResponder].
+// ConfigureThresholdValue sets the command threshold for this FeedbackResponder.
 func (fbr *FeedbackResponder) ConfigureThresholdValue(threshold int) (err error) {
 	if threshold < 0 {
 		err = errors.New(fbr.getLogHead() + "invalid threshold; cannot be negative")
 		return
 	}
-	fbr.setThreshold(threshold)
-	return
-}
-
-func (fbr *FeedbackResponder) ConfigureThresholdEnabled(enabled bool) {
-	fbr.mutex.Lock()
-	defer fbr.mutex.Unlock()
-	fbr.ThresholdEnabled = enabled
-}
-
-func (fbr *FeedbackResponder) setThreshold(threshold int) {
 	fbr.mutex.Lock()
 	defer fbr.mutex.Unlock()
 	fbr.ThresholdScore = threshold
+	return
 }
 
-func (fbr *FeedbackResponder) setInterval(interval int) {
-	fbr.mutex.Lock()
-	defer fbr.mutex.Unlock()
-	if interval < 1 {
-		fbr.CommandInterval = 0
-	} else {
-		fbr.CommandInterval = interval
-	}
-}
-
-// A corrected version of the algorithm mentioned on the Loadbalancer.org
-// blog for the older Feedback Agent, which calculates an availability
-// score against a maximum value specified for a given metric, adjusted
-// by a relative significance score (scaled proportion of the total
-// significance for all monitors attached to this responder).
-func (fbr *FeedbackResponder) AvailabilityScore() (score int) {
-	// Calculate the overall score across all monitors by scaling
+// GetAvailabilityState provides a corrected version of the algorithm mentioned
+// on the Loadbalancer.org blog for the older Windows Feedback Agent, which
+// calculates an availability score against a maximum value specified for a
+// given metric, adjusted by a relative significance score (scaled proportion
+// of the total significance for all monitors attached to this responder).
+func (fbr *FeedbackResponder) GetAvailabilityState() (availability int, online bool, logText string) {
+	// Calculate the overall total load across all monitors by scaling
 	// against their maximum value, and then their relative significance.
 	// Formula:
 	//       s = 100 - ((v_cur / v_max) * sig_rel * 100)
 	// where:
-	//       s = total availability score for this monitor
+	//       s = total load score for this monitor
 	//       v_cur = current raw value returned by the stats model
 	//       v_max = maximum specified ceiling for the source
 	//       sig_rel = fraction of all significances set for this monitor
 	//
-	scoreTotal := 0.0
+	// The responder should be in an online state unless otherwise disproven.
+	online = true
+	// The sum of all load values from each source, multiplied by the relative significance.
+	overallLoad := 0
+	metricLog, anyLog, overallLog := "", "", ""
+	// Process the current load values for all feedback sources.
 	for _, source := range fbr.FeedbackSources {
-		// Skip any monitors with no significance.
-		if source.RelativeSignificance <= 0.0 {
-			continue
+		// Get source load and add into the overall load scaled by its significance.
+		sourceLoad := getSourceLoad(source)
+		// Check to see if any per-source thresholds have been exceeded, if enabled.
+		if fbr.isMetricThresholdEnabled() {
+			exceeded, msg := fbr.getThresholdStatus("metric: source '"+
+				source.Monitor.Name+"'",
+				int(source.Threshold), sourceLoad)
+			if exceeded {
+				online = false
+			}
+			metricLog += msg + "\n"
 		}
-		// Grab the current raw value from the stats model.
-		rawValue := source.Monitor.StatsModel.GetResult()
-		// Clamp the raw value at the maximum value set.
-		if rawValue > source.MaxValue {
-			rawValue = source.MaxValue
+		// Check if we are looking for any threshold value, and if it has been exceeded.
+		if fbr.isAnyThresholdEnabled() {
+			exceeded, msg := fbr.getThresholdStatus("any: source '"+
+				source.Monitor.Name+"'",
+				fbr.ThresholdScore, sourceLoad)
+			if exceeded {
+				online = false
+			}
+			anyLog += msg + "\n"
 		}
-		scaledValue := (float64(rawValue) /
-			float64(source.MaxValue)) *
-			source.RelativeSignificance
-		scoreTotal += scaledValue
+		// Add this source's load to the overall load, scaled by the significance.
+		overallLoad += int(float64(sourceLoad) * source.RelativeSignificance)
 	}
-	score = 100 - int(math.Round(scoreTotal*100))
-	// Constrain score within boundaries.
-	if score > 100 {
-		score = 100
-	} else if score < 0 {
-		score = 0
+	// Check the overall threshold, if applicable.
+	if fbr.isOverallThresholdEnabled() {
+		exceeded, msg := fbr.getThresholdStatus("overall",
+			fbr.ThresholdScore, overallLoad)
+		if exceeded {
+			online = false
+		}
+		overallLog += msg + "\n"
+	}
+	logText = anyLog + metricLog + overallLog
+	// Invert the overall load percentage to give the availability.
+	availability = 100 - overallLoad
+	return
+}
+
+func (fbr *FeedbackResponder) isAnyThresholdEnabled() bool {
+	return fbr.thresholdModeEnum == ThresholdModeAny
+}
+
+func (fbr *FeedbackResponder) isMetricThresholdEnabled() bool {
+	return fbr.thresholdModeEnum == ThresholdModeAny ||
+		fbr.thresholdModeEnum == ThresholdModeMetricOnly
+}
+
+func (fbr *FeedbackResponder) isOverallThresholdEnabled() bool {
+	return fbr.thresholdModeEnum == ThresholdModeAny ||
+		fbr.thresholdModeEnum == ThresholdModeOverallOnly
+}
+
+func getSourceLoad(source *FeedbackSource) (load int) {
+	// Grab the current raw value from the stats model.
+	rawValue := source.Monitor.StatsModel.GetResult()
+	// Clamp the raw value at the configured max value.
+	if rawValue > source.MaxValue {
+		rawValue = source.MaxValue
+	}
+	load = int(math.Round((float64(rawValue) /
+		float64(source.MaxValue)) * 100))
+	// Constrain total within boundaries.
+	if load > 100 {
+		load = 100
+	} else if load < 0 {
+		load = 0
 	}
 	return
 }
 
-// Handler for generating a feedback string for this [FeedbackResponder].
+func (fbr *FeedbackResponder) getThresholdStatus(name string, threshold int, load int) (
+	exceeded bool, msg string) {
+	msg = name + ": "
+	if threshold <= 0 {
+		// If threshold is disabled, then exceeded is always false.
+		msg += "threshold is disabled"
+	} else {
+		msg += "load (" + strconv.Itoa(load) + "%) "
+		if load < threshold {
+			// If the load is less than the threshold, then exceeded is also false.
+			msg += "is within"
+		} else {
+			// Otherwise, the threshold has been exceeded.
+			msg += "has exceeded"
+			exceeded = true
+		}
+		msg += " threshold (" + strconv.Itoa(threshold) + "%)"
+	}
+	return
+}
+
+// HandleFeedback generates a feedback string for this FeedbackResponder.
 // It also changes the current online state as of the last query so that
 // a command is sent for a specified period of time from the first request.
 func (fbr *FeedbackResponder) HandleFeedback() (feedback string) {
 	timestamp := time.Now()
 	fbr.mutex.Lock()
 	defer fbr.mutex.Unlock()
-	score := fbr.AvailabilityScore()
-	feedback = strconv.Itoa(score) + "%"
-	thresholdState := score >= fbr.ThresholdScore
+	availability, thresholdState, logMessage := fbr.GetAvailabilityState()
+	feedback = strconv.Itoa(availability) + "%"
 
 	// First, work out if we should change state based on the threshold.
 	// We do so if the threshold is enabled, the current threshold state
 	// has changed, and we aren't in a forced command that hasn't yet
 	// expired.
-	if (fbr.ThresholdEnabled && (thresholdState != fbr.onlineState)) &&
+	if ((fbr.thresholdModeEnum != ThresholdModeNone) &&
+		(thresholdState != fbr.onlineState)) &&
 		(!fbr.forceCommandState || (timestamp.After(fbr.stateExpiry) &&
 			(fbr.onlineState || fbr.EnableOfflineInterval))) {
 		// SetHACommandState() is used by external code, so it
 		// locks and unlocks the responder mutex itself. This means
 		// we need to release the mutex first before calling it
-		// and relock for the final defer.
+		// and locking again for the final defer.
 		fbr.mutex.Unlock()
-		fbr.SetHAPCommandState(thresholdState, false, HAPEnumNone)
+		fbr.SetCommandState(thresholdState, false, HAPEnumNone)
+		if fbr.LogStateChanges {
+			logrus.Info(fbr.getLogHead() + "has changed threshold state:\n" + logMessage)
+		}
 		fbr.mutex.Lock()
 	}
 
 	// Next, work out whether we send a command for the current state
-	// by checking whether it's expired yet, overriden if it's an offline
+	// by checking whether it's expired yet, overridden if it's an offline
 	// state and the interval is disabled for online states. Note that
 	// we have to repeat the logic tests here because the state may
 	// have changed above.
@@ -832,9 +937,10 @@ func (fbr *FeedbackResponder) HandleFeedback() (feedback string) {
 	return
 }
 
-// Gets a string response from this [FeedbackResponder], which will depend
+// GetResponse gets a string response from this FeedbackResponder, which will depend
 // on its configuration and what it is supposed to do.
-func (fbr *FeedbackResponder) GetResponse(request string) (response string, quitAfter bool) {
+func (fbr *FeedbackResponder) GetResponse(request string) (response string,
+	quitAfter bool) {
 	if !PanicDebug {
 		defer func() {
 			err := recover()
@@ -853,7 +959,7 @@ func (fbr *FeedbackResponder) GetResponse(request string) (response string, quit
 	return
 }
 
-// Generates an HAProxy command string based on the current
+// GenerateCommandString generates an HAProxy command string based on the current
 // command mask and a specified online state.
 func (fbr *FeedbackResponder) GenerateCommandString(online bool, currentMask int) (
 	commands string) {
@@ -865,23 +971,44 @@ func (fbr *FeedbackResponder) GenerateCommandString(online bool, currentMask int
 	return
 }
 
-// Converts an HAProxy command mask to a string, ignoring any command
+// CommandMaskToString converts an HAProxy command mask to a string, ignoring any command
 // enums that don't have any bits matching the filter.
 func (fbr *FeedbackResponder) CommandMaskToString(commandMask int, enumMask int,
 	filter int) (commands string) {
-	for _, enum := range fbr.commandEnumOrder {
+	for _, enum := range commandEnumOrder {
 		// Add this command if this enum is for the current state
 		// and currently enabled within the configured command mask.
 		if (enum&filter > 0) && ((enum & commandMask) == (enum & enumMask)) {
 			if commands != "" {
 				commands += " "
 			}
-			commands += fbr.enumToCommand[enum]
+			commands += enumToCommand[enum]
 		}
 	}
 	return
 }
 
-// -------------------------------------------------------------------
-// END OF FILE
-// -------------------------------------------------------------------
+// ConfigureThresholdMode sets the current threshold name and string
+// from a specified string value, returning an error (and leaving the mode
+// unchanged) if the specified string is invalid.
+func (fbr *FeedbackResponder) ConfigureThresholdMode(name string) (err error) {
+	name = strings.ToLower(strings.TrimSpace(name))
+	if name == "" {
+		// Set to default if no threshold string is currently configured.
+		name = ThresholdStringNone
+	}
+	if (fbr.ProtocolName == ProtocolSecureAPI || fbr.ProtocolName == ProtocolLegacyAPI) &&
+		name != ThresholdStringNone {
+		err = errors.New("no threshold mode other than '" + ThresholdStringNone +
+			"' is valid for an API responder")
+		return
+	}
+	mode, exists := thresholdStringToMode[name]
+	if !exists {
+		err = errors.New("threshold mode '" + name + "' is invalid")
+		return
+	}
+	fbr.thresholdModeEnum = mode
+	fbr.ThresholdModeName = name
+	return
+}

@@ -25,6 +25,7 @@ package agent
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"log"
 	"strings"
 )
@@ -60,4 +61,71 @@ func RandomHexBytes(n int) (str string) {
 		str = hex.EncodeToString(bytes)
 	}
 	return
+}
+
+// PointerHandleIntValue filters an input integer pointer, setting
+// the return value to nil if the input is less than zero.
+func PointerHandleIntValue(input *int) (output *int) {
+	if input == nil || *input < 0 {
+		output = nil
+	} else {
+		output = input
+	}
+	return
+}
+
+// PointerHandleInt64Value provides the same functionality as PointerHandleIntValue,
+// but for 64-bit integer pointers.
+func PointerHandleInt64Value(input *int64) (output *int64) {
+	if input == nil || *input < 0 {
+		output = nil
+	} else {
+		output = input
+	}
+	return
+}
+
+// PointerHandleStringValue filters an input string pointer, setting
+// the output to nil if the string is empty.
+func PointerHandleStringValue(input *string) (output *string) {
+	if input != nil && strings.TrimSpace(*input) == "" {
+		output = nil
+	} else {
+		output = input
+	}
+	return
+}
+
+// PointerHandleBoolString converts a string representation of a boolean
+// state ("true" or "false") into a bool pointer type if is not nil. This
+// is to provide a workaround for an annoying bug in the Go flags package.
+func PointerHandleBoolString(input *string) (output *bool) {
+	valueTrue := true
+	valueFalse := false
+	if input != nil {
+		str := strings.ToLower(strings.TrimSpace(*input))
+		if str == "true" {
+			output = &valueTrue
+		} else if str == "false" {
+			output = &valueFalse
+		}
+	}
+	return
+}
+
+// StandardiseNameIdentifier validates and standardises an object name identifier.
+func StandardiseNameIdentifier(in string) (out string, err error) {
+	// Sanitise the name string
+	str := strings.ToLower(strings.TrimSpace(in))
+	// If it's empty, return an error, otherwise return the string
+	if str == "" {
+		err = errors.New("name not specified")
+	} else {
+		out = str
+	}
+	return
+}
+
+func StringAddr(s string) *string {
+	return &s
 }

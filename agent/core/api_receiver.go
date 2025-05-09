@@ -31,8 +31,8 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// Handles an incoming JSON API request received by this [FeedbackAgent]
-// via a [FeedbackResponder] service.
+// ReceiveAPIRequest handles an incoming JSON API request received by this
+// FeedbackAgent via a FeedbackResponder service.
 func (agent *FeedbackAgent) ReceiveAPIRequest(requestJSON string) (
 	responseJSON string, err error, quitAfterResponding bool) {
 	// Unmarshal into an empty request
@@ -42,14 +42,14 @@ func (agent *FeedbackAgent) ReceiveAPIRequest(requestJSON string) (
 	// Marshal the response object into the JSON response.
 	output, err := json.MarshalIndent(response, "", "    ")
 	if err == nil {
-		responseJSON = string(output)
+		responseJSON = string(output) + "\n"
 	} else {
 		logrus.Error("Failed to marshal JSON API response.")
 	}
 	return
 }
 
-// Unmarshals a JSON request string into an [APIRequest].
+// UnmarshalAPIRequest unmarshals a JSON request string into an APIRequest.
 func UnmarshalAPIRequest(requestJSON string) (request *APIRequest, err error) {
 	// Attempt to unmarshal the request into the target object.
 	request = &APIRequest{}
@@ -57,25 +57,25 @@ func UnmarshalAPIRequest(requestJSON string) (request *APIRequest, err error) {
 	return
 }
 
-// Performs basic initial sanity checks of an API request.
+// ValidateAPIRequest performs basic initial sanity checks of an API request.
 func (agent *FeedbackAgent) ValidateAPIRequest(request *APIRequest) (errID string,
 	errMsg string) {
 	if request == nil {
 		errID = "bad-json"
 		errMsg = "could not read JSON"
-	} else if (request.Type == "monitor" ||
-		request.Type == "responder") &&
+	} else if (request.Type == "monitor" || request.Type == "responder") &&
 		request.TargetName == "" {
 		errID = "missing-target"
 		errMsg = "no target service name specified"
 	} else if request.APIKey == "" || request.APIKey != agent.APIKey {
+		//logrus.Debug("api key mismatch: request = '" + request.APIKey + "', agent = '" + agent.APIKey + "'")
 		errID = "bad-api-key"
 		errMsg = "invalid or missing API key"
 	}
 	return
 }
 
-// Processes an incoming API request and performs the required actions.
+// ProcessAPIRequest processes an incoming API request and performs the required actions.
 func (agent *FeedbackAgent) ProcessAPIRequest(request *APIRequest, parseErr error) (
 	response *APIResponse, quitAfterResponding bool) {
 	// -- Perform required initialisation and validation.
@@ -102,15 +102,15 @@ func (agent *FeedbackAgent) ProcessAPIRequest(request *APIRequest, parseErr erro
 		response.Message = "JSON syntax error: " + parseErr.Error()
 		return
 	}
+	request.Type = strings.TrimSpace(request.Type)
+	request.Action = strings.TrimSpace(request.Action)
+	request.TargetName = strings.TrimSpace(request.TargetName)
 	response.Error, response.Message = agent.ValidateAPIRequest(request)
 	if response.Error != "" {
 		return
 	}
-	request.Type = strings.TrimSpace(request.Type)
-	request.Action = strings.TrimSpace(request.Action)
-	request.TargetName = strings.TrimSpace(request.TargetName)
 	// -- The main API command tree.
-	// This default error will be overriden by nil or another error
+	// This default error will be overridden by nil or another error
 	// if a matching part of the tree is reached.
 	desc := BuildAPIDescription(request)
 	unknownType, suppressLog, quitAfterResponding, err :=
@@ -185,7 +185,8 @@ func (agent *FeedbackAgent) apiActionTree(request *APIRequest, response *APIResp
 	case "get":
 		switch request.Type {
 		case "config":
-			response.AgentConfig = agent
+			config := agent.APIHandleGetConfig()
+			response.AgentConfig = &config
 			suppressLog = true
 		case "feedback":
 			response.Output, err =
@@ -222,7 +223,7 @@ func (agent *FeedbackAgent) apiActionTree(request *APIRequest, response *APIResp
 		switch request.Type {
 		case "halt", "maint":
 			err = agent.APIHandleSetOnlineState(request.TargetName,
-				false, HAPEnumMaint)
+				false, HAPEnumMaintenance)
 		case "drain":
 			err = agent.APIHandleSetOnlineState(request.TargetName,
 				false, HAPEnumDrain)
@@ -240,7 +241,18 @@ func (agent *FeedbackAgent) apiActionTree(request *APIRequest, response *APIResp
 	return
 }
 
-// Builds an array of the service status.
+func (agent *FeedbackAgent) APIHandleGetConfig() (config FeedbackAgent) {
+	// Shallow-copy the fields from the agent first to avoid overwriting them.
+	config = *agent
+	// Hide the API key from the response for security
+	config.APIKey = ""
+	// Remove duplicated service name and version
+	config.ServiceName = ""
+	config.Version = ""
+	return
+}
+
+// GetServiceStatusArray builds an array of the service status.
 func (agent *FeedbackAgent) GetServiceStatusArray() (array []APIServiceStatus) {
 	// Report status of responders
 	for name, responder := range agent.Responders {
@@ -255,7 +267,7 @@ func (agent *FeedbackAgent) GetServiceStatusArray() (array []APIServiceStatus) {
 	return
 }
 
-// Appends an item to the service status array.
+// AppendToStatusArray appends an item to a service status array.
 func AppendToStatusArray(array []APIServiceStatus, serviceType string,
 	name string, state string) []APIServiceStatus {
 	return append(array, APIServiceStatus{
@@ -265,7 +277,7 @@ func AppendToStatusArray(array []APIServiceStatus, serviceType string,
 	})
 }
 
-// Converts a boolean running state to a descriptive string.
+// ServiceRunningToString converts a boolean running state to a descriptive string.
 func ServiceRunningToString(running bool) string {
 	if running {
 		return "running"
@@ -274,7 +286,7 @@ func ServiceRunningToString(running bool) string {
 	}
 }
 
-// Outputs the current agent status as a descriptive string.
+// GetAgentStatusString outputs the current agent status as a descriptive string.
 func (agent *FeedbackAgent) GetAgentStatusString() (status string) {
 	if agent.isStarting {
 		status = "starting"
@@ -286,7 +298,7 @@ func (agent *FeedbackAgent) GetAgentStatusString() (status string) {
 	return
 }
 
-// Makes a log line description of an API request.
+// BuildAPIDescription makes a log line description of an API request.
 func BuildAPIDescription(request *APIRequest) (desc string) {
 	desc = "(no action)"
 	if request.Action != "" {
@@ -321,13 +333,17 @@ func (agent *FeedbackAgent) APIAddMonitor(request *APIRequest) (err error) {
 	if request.MetricParams != nil {
 		params = *request.MetricParams
 	}
+	shaping := false
+	if request.SmartShape != nil {
+		shaping = *request.SmartShape
+	}
 	// Try to add this as a new [SystemMonitor].
 	err = agent.AddMonitor(
 		request.TargetName,
 		metricType,
 		interval,
 		params,
-		nil,
+		shaping,
 	)
 	if err != nil {
 		return
@@ -369,13 +385,17 @@ func (agent *FeedbackAgent) APIAddResponder(request *APIRequest) (err error) {
 	if request.ThresholdScore != nil {
 		hapThreshold = *request.ThresholdScore
 	}
-	enableThreshold := false
-	if request.ThresholdEnabled != nil {
-		enableThreshold = *request.ThresholdEnabled
+	thresholdMode := ""
+	if request.ThresholdMode != nil {
+		thresholdMode = *request.ThresholdMode
 	}
 	hapCommands := ""
 	if request.CommandList != nil {
 		hapCommands = *request.CommandList
+	}
+	logStateChanges := false
+	if request.LogStateChanges != nil {
+		logStateChanges = *request.LogStateChanges
 	}
 	// Try to add this as a new [FeedbackResponder]. The AddResponder() function will
 	// look for and find the object for the [SystemMonitor] if it exists.
@@ -386,8 +406,9 @@ func (agent *FeedbackAgent) APIAddResponder(request *APIRequest) (err error) {
 		ipAddress,
 		listenPort,
 		hapCommands,
-		enableThreshold,
+		thresholdMode,
 		hapThreshold,
+		logStateChanges,
 	)
 	// If we couldn't add the responder (e.g. because the monitor doesn't exist),
 	// fail out to an error.
@@ -414,22 +435,55 @@ func (agent *FeedbackAgent) APIEditMonitor(request *APIRequest) (err error) {
 		return
 	}
 	changed := false
+	valid := false
+
 	// Copy the old monitor so that we can apply the changes to it.
 	newMonitor := oldMonitor.Copy()
+
+	// Handle any changes to the metric type.
 	if request.MetricType != nil {
-		newMonitor.MetricType = *request.MetricType
-		changed = true
+		metricType, _ := StandardiseNameIdentifier(*request.MetricType)
+		if metricType != "" {
+			valid = true
+			if metricType != newMonitor.MetricType {
+				newMonitor.MetricType = metricType
+				changed = true
+			}
+		}
 	}
+
 	if request.MetricInterval != nil {
-		newMonitor.Interval = *request.MetricInterval
-		changed = true
+		valid = true
+		if *request.MetricInterval != oldMonitor.Interval {
+			newMonitor.Interval = *request.MetricInterval
+			changed = true
+		}
 	}
+
+	// Process metric parameter key/value pairs if required.
 	if request.MetricParams != nil {
-		newMonitor.Params = *request.MetricParams
-		changed = true
+		for key, value := range *request.MetricParams {
+			key = strings.ToLower(strings.TrimSpace(key))
+			value = strings.TrimSpace(value)
+			if key != "" && value != "" {
+				valid = true
+				newMonitor.Params[key] = value
+				changed = true
+			}
+		}
+	}
+
+	if request.SmartShape != nil {
+		valid = true
+		if *request.SmartShape != oldMonitor.SmartShape {
+			newMonitor.SmartShape = *request.SmartShape
+			changed = true
+		}
 	}
 	if !changed {
-		err = errors.New("no fields changed in request")
+		if !valid {
+			err = errors.New("no valid fields to change specified")
+		}
 		return
 	}
 	// Attempt to initialise the new monitor to validate it, else error.
@@ -462,13 +516,13 @@ func (agent *FeedbackAgent) APIEditMonitor(request *APIRequest) (err error) {
 	return
 }
 
-func (agent *FeedbackAgent) APIModifyResponder(request *APIRequest) (err error) {
-	// Fetch the responder that this pertains to (otherwise, an error occurs).
+func (agent *FeedbackAgent) APIEditResponder(request *APIRequest) (err error) {
+	// Fetch the responder that this pertains to (otherwise, return the error).
 	oldResponder, err := agent.GetResponderByName(request.TargetName)
 	if err != nil {
 		return
 	}
-	// Copy the old monitor so that we can apply the changes to it.
+	// Copy the old responder so that we can apply the changes to it.
 	newResponder := oldResponder.Copy()
 	// Process JSON pointer fields (to determine if they were set or not).
 	if request.FeedbackSources != nil {
@@ -476,42 +530,36 @@ func (agent *FeedbackAgent) APIModifyResponder(request *APIRequest) (err error) 
 	}
 	if request.ProtocolName != nil {
 		if request.TargetName == "api" {
-			err = errors.New("API responders do not have a configurable " +
-				"protocol")
+			err = errors.New("API responders do not have a configurable protocol")
 			return
 		}
-		newResponder.ProtocolName =
-			*request.ProtocolName
+		newResponder.ProtocolName = *request.ProtocolName
 	}
 	if request.ListenIPAddress != nil {
-		newResponder.ListenIPAddress =
-			*request.ListenIPAddress
+		newResponder.ListenIPAddress = *request.ListenIPAddress
 	}
 	if request.ListenPort != nil {
-		newResponder.ListenPort =
-			*request.ListenPort
+		newResponder.ListenPort = *request.ListenPort
 	}
 	if request.RequestTimeout != nil {
-		newResponder.RequestTimeout =
-			time.Duration(*request.RequestTimeout)
+		newResponder.RequestTimeout = time.Duration(*request.RequestTimeout)
 	}
 	if request.ResponseTimeout != nil {
-		newResponder.ResponseTimeout =
-			time.Duration(*request.ResponseTimeout)
+		newResponder.ResponseTimeout = time.Duration(*request.ResponseTimeout)
 	}
-	if request.ThresholdEnabled != nil {
-		newResponder.ThresholdEnabled =
-			*request.ThresholdEnabled
+	if request.ThresholdMode != nil {
+		newResponder.ThresholdModeName = *request.ThresholdMode
 	}
 	if request.ThresholdScore != nil {
-		newResponder.ThresholdScore =
-			*request.ThresholdScore
+		newResponder.ThresholdScore = *request.ThresholdScore
 	}
 	if request.FeedbackSources != nil {
-		newResponder.FeedbackSources =
-			*request.FeedbackSources
+		newResponder.FeedbackSources = *request.FeedbackSources
 	}
-	// Attempt to initialise the new monitor to validate it, else error.
+	if request.LogStateChanges != nil {
+		newResponder.LogStateChanges = *request.LogStateChanges
+	}
+	// Attempt to initialise the new responder to validate it, else error.
 	err = newResponder.Initialise()
 	if err != nil {
 		return
@@ -591,7 +639,7 @@ func (agent *FeedbackAgent) APIHandleResponderRequest(request *APIRequest) (
 	}
 	switch request.Action {
 	case "edit":
-		err = agent.APIModifyResponder(request)
+		err = agent.APIEditResponder(request)
 	case "delete":
 		err = agent.APIDeleteResponder(request)
 	case "start":
@@ -618,6 +666,7 @@ func (agent *FeedbackAgent) APIHandleMonitorRequest(request *APIRequest) (
 	}
 	switch request.Action {
 	case "edit":
+
 		err = agent.APIEditMonitor(request)
 	case "delete":
 		err = agent.APIDeleteMonitor(request)
@@ -646,10 +695,12 @@ func (agent *FeedbackAgent) APIHandleSourceRequest(request *APIRequest) (
 	switch request.Action {
 	case "add":
 		err = res.AddFeedbackSource(*request.SourceMonitorName,
-			request.SourceSignificance, request.SourceMaxValue)
+			request.SourceSignificance, request.SourceMaxValue,
+			request.ThresholdScore)
 	case "edit":
 		err = res.EditFeedbackSource(*request.SourceMonitorName,
-			request.SourceSignificance, request.SourceMaxValue)
+			request.SourceSignificance, request.SourceMaxValue,
+			request.ThresholdScore)
 	case "delete":
 		err = res.DeleteFeedbackSource(*request.SourceMonitorName)
 	default:
@@ -695,39 +746,46 @@ func (agent *FeedbackAgent) APIHandleSetOnlineState(name string,
 		targets[name] = res
 	}
 	for _, res := range targets {
-		res.SetHAPCommandState(isOnline, true, commandMask)
+		res.SetCommandState(isOnline, true, commandMask)
 	}
 	return
 }
 
+// APIHandleSetThreshold processes an API request to set a value or state
+// for applying a threshold to the Feedback Agent output.
 func (agent *FeedbackAgent) APIHandleSetThreshold(request *APIRequest) (
 	err error) {
+	// Fetch the responder from the parent agent object.
 	res, err := agent.GetResponderByName(request.TargetName)
 	if err != nil {
 		return
 	}
-	changed := true
-	enableThreshold := false
+	changed := false
+	// Process a change to the threshold score, if provided.
 	if request.ThresholdScore != nil {
 		err = res.ConfigureThresholdValue(*request.ThresholdScore)
 		if err != nil {
 			return
 		}
-		// If a valid threshold has been set, enable by default
-		enableThreshold = true
 		changed = true
 	}
-	if request.ThresholdEnabled != nil {
-		enableThreshold = *request.ThresholdEnabled
+	// Process a change to whether the threshold is enabled, if provided
+	// or triggered by the above code.
+	if request.ThresholdMode != nil {
+		err = res.ConfigureThresholdMode(*request.ThresholdMode)
+		if err != nil {
+			return
+		}
 		changed = true
 	}
+	// If no change occurred but this was a request to change something
+	// about the threshold, then we raise an error. Otherwise, flag
+	// to the agent to resave the config file.
 	if !changed {
 		err = errors.New("no threshold parameters specified")
-		return
 	} else {
-		res.ConfigureThresholdEnabled(enableThreshold)
+		agent.unsavedChanges = true
 	}
-	agent.unsavedChanges = true
 	return
 }
 
@@ -763,7 +821,10 @@ func (agent *FeedbackAgent) APIHandleSetInterval(request *APIRequest) (
 		err = errors.New("invalid command interval specified (use 0 for disabled)")
 		return
 	}
-	res.ConfigureInterval(*request.CommandInterval)
+	err = res.ConfigureInterval(*request.CommandInterval)
+	if err != nil {
+		return
+	}
 	agent.unsavedChanges = true
 	return
 }

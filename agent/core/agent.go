@@ -23,7 +23,6 @@
 package agent
 
 import (
-	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -38,12 +37,16 @@ import (
 // set of [SystemMonitor] and [FeedbackResponder] objects, and provides the
 // general utility functions for the project.
 type FeedbackAgent struct {
+	// Config masthead fields. These were absent prior to v5.3.6 and
+	// must therefore have the omitempty flag set for the JSON.
+	ServiceName string `json:"service-name,omitempty"`
+	Version     string `json:"version,omitempty"`
+
 	// Agent configuration fields
-	LogDir         string                        `json:"log-dir"`
-	APIKey         string                        `json:"api-key"`
-	Monitors       map[string]*SystemMonitor     `json:"monitors"`
-	Responders     map[string]*FeedbackResponder `json:"responders"`
-	TLSCertificate *tls.Certificate              `json:"-"`
+	LogDir     string                        `json:"log-dir"`
+	APIKey     string                        `json:"api-key,omitempty"`
+	Monitors   map[string]*SystemMonitor     `json:"monitors"`
+	Responders map[string]*FeedbackResponder `json:"responders"`
 
 	// State parameters for the agent application
 	useLocalPath   bool
@@ -56,13 +59,20 @@ type FeedbackAgent struct {
 	unsavedChanges bool
 }
 
+// PanicDebug specifies if a panic should result in termination
+// or instead be ignored in a parent service via recover().
+var PanicDebug = false
+
 // LaunchAgentService creates a new [FeedbackAgent] service and runs it.
 func LaunchAgentService() (exitStatus int) {
 	// Print the CLI masthead.
 	fmt.Println(ShellBanner)
 	// $$ TO DO: Pass errors from agent.Run() to show success/
 	// failure on the shell (not just in the logs).
-	agent := FeedbackAgent{}
+	agent := FeedbackAgent{
+		ServiceName: AppIdentifier,
+		Version:     VersionString,
+	}
 	exitStatus = agent.Run()
 	return
 }
@@ -90,17 +100,6 @@ func (agent *FeedbackAgent) agentMain() (exitStatus int) {
 		exitStatus = ExitStatusError
 		return
 	}
-	/**
-	// Generate a new TLS certificate based on the new config.
-	err = agent.GenerateSelfSignedTLSCert()
-	if err != nil {
-		logrus.Error("TLS initialisation failed: " + err.Error())
-		exitStatus = ExitStatusError
-		return
-	} else {
-		logrus.Info("Successfully generated a new TLS certificate.")
-	}
-	**/
 	// Set up file logging for this agent.
 	err = agent.InitialiseFileLogging(agent.LogDir)
 	if err != nil {
@@ -122,12 +121,17 @@ func (agent *FeedbackAgent) agentMain() (exitStatus int) {
 	logrus.Info("Startup complete; the Feedback Agent has launched.")
 	agent.EventHandleLoop()
 	// If we're here, we've quit.
-	agent.StopAllServices()
+	err = agent.StopAllServices()
+	if err != nil {
+		logrus.Error("Failed to stop all services: " + err.Error() + ".")
+		exitStatus = ExitStatusError
+		return
+	}
 	exitStatus = ExitStatusNormal
 	return
 }
 
-// Initialises the system paths for this [FeedbackAgent].
+// InitialisePaths initialises the system paths for this FeedbackAgent.
 func (agent *FeedbackAgent) InitialisePaths() {
 	if agent.useLocalPath {
 		localDir, err := os.Getwd()
@@ -169,23 +173,23 @@ func (agent *FeedbackAgent) EventHandleLoop() {
 	}
 }
 
-// Sends the agent event loop a quit signal.
+// SelfSignalQuit sends the agent event loop a quit signal.
 func (agent *FeedbackAgent) SelfSignalQuit() {
 	agent.systemSignals <- agent.quitSignal
 }
 
-// Sets up logrus to show the timestamp in the correct format.
+// InitialiseLogger sets up logrus to show the timestamp in the correct format.
 func (agent *FeedbackAgent) InitialiseLogger() {
 	logrus.SetLevel(logrus.DebugLevel)
-	fmt := &logrus.TextFormatter{
+	formatter := &logrus.TextFormatter{
 		TimestampFormat: "2006-01-02 15:04:05",
 		FullTimestamp:   true,
 		ForceColors:     false,
 	}
-	logrus.SetFormatter(fmt)
+	logrus.SetFormatter(formatter)
 }
 
-// Loads the JSON configuration file (or creates a new default file,
+// StartAllServices loads the JSON configuration file (or creates a new default file,
 // loading a default configuration) and starts Monitors and Responders.
 func (agent *FeedbackAgent) StartAllServices() (err error) {
 	logrus.Info("The Feedback Agent is now launching.")
@@ -240,7 +244,7 @@ func (agent *FeedbackAgent) StartAllServices() (err error) {
 	return
 }
 
-// Signals all [FeedbackAgent] services to stop.
+// StopAllServices signals all FeedbackAgent services to stop.
 func (agent *FeedbackAgent) StopAllServices() (err error) {
 	logrus.Info("Stopping all Feedback Agent services.")
 	var currentErr error
@@ -259,7 +263,7 @@ func (agent *FeedbackAgent) StopAllServices() (err error) {
 	return
 }
 
-// Restarts all [FeedbackAgent] services and reloads the configuration.
+// RestartAllServices restarts all FeedbackAgent services and reloads the configuration.
 func (agent *FeedbackAgent) RestartAllServices() (err error) {
 	logrus.Info("The Feedback Agent is restarting.")
 	// We want to continue to start services even if stopping fails
@@ -275,8 +279,12 @@ func (agent *FeedbackAgent) RestartAllServices() (err error) {
 	return
 }
 
-// Gets a [FeedbackResponder] by name from the map.
+// GetResponderByName gets a FeedbackResponder by name from the map.
 func (agent *FeedbackAgent) GetResponderByName(name string) (res *FeedbackResponder, err error) {
+	name, err = StandardiseNameIdentifier(name)
+	if err != nil {
+		return
+	}
 	// Try to get a pointer to the responder object, if it exists.
 	res, exists := agent.Responders[name]
 	if !exists || res == nil {
@@ -286,8 +294,12 @@ func (agent *FeedbackAgent) GetResponderByName(name string) (res *FeedbackRespon
 	return
 }
 
-// Starts a [FeedbackResponder] by name from the map.
+// StartResponderByName starts a FeedbackResponder by name from the map.
 func (agent *FeedbackAgent) StartResponderByName(name string) (err error) {
+	name, err = StandardiseNameIdentifier(name)
+	if err != nil {
+		return
+	}
 	res, err := agent.GetResponderByName(name)
 	if err != nil {
 		return
@@ -296,8 +308,12 @@ func (agent *FeedbackAgent) StartResponderByName(name string) (err error) {
 	return
 }
 
-// Stops a [FeedbackResponder] by name from the map.
+// StopResponderByName stops a FeedbackResponder by name from the map.
 func (agent *FeedbackAgent) StopResponderByName(name string) (err error) {
+	name, err = StandardiseNameIdentifier(name)
+	if err != nil {
+		return
+	}
 	res, err := agent.GetResponderByName(name)
 	if err != nil {
 		return
@@ -308,8 +324,12 @@ func (agent *FeedbackAgent) StopResponderByName(name string) (err error) {
 	return
 }
 
-// Deletes a [FeedbackResponder] by name from the map.
+// DeleteResponderByName deletes a FeedbackResponder by name from the map.
 func (agent *FeedbackAgent) DeleteResponderByName(name string) (err error) {
+	name, err = StandardiseNameIdentifier(name)
+	if err != nil {
+		return
+	}
 	err = agent.StopResponderByName(name)
 	if err != nil {
 		return
@@ -318,9 +338,13 @@ func (agent *FeedbackAgent) DeleteResponderByName(name string) (err error) {
 	return
 }
 
-// Gets a [SystemMonitor] by name from the map.
+// GetMonitorByName gets a SystemMonitor by name from the map.
 func (agent *FeedbackAgent) GetMonitorByName(name string) (mon *SystemMonitor,
 	err error) {
+	name, err = StandardiseNameIdentifier(name)
+	if err != nil {
+		return
+	}
 	// Try to get a pointer to the monitor object, if it exists.
 	mon, exists := agent.Monitors[name]
 	if !exists || mon == nil {
@@ -330,8 +354,12 @@ func (agent *FeedbackAgent) GetMonitorByName(name string) (mon *SystemMonitor,
 	return
 }
 
-// Starts a [SystemMonitor] by name from the map.
+// StartMonitorByName starts a SystemMonitor by name from the map.
 func (agent *FeedbackAgent) StartMonitorByName(name string) (err error) {
+	name, err = StandardiseNameIdentifier(name)
+	if err != nil {
+		return
+	}
 	mon, err := agent.GetMonitorByName(name)
 	if err != nil {
 		return
@@ -340,8 +368,12 @@ func (agent *FeedbackAgent) StartMonitorByName(name string) (err error) {
 	return
 }
 
-// Stops a [SystemMonitor] by name from the map.
+// StopMonitorByName stops a SystemMonitor by name from the map.
 func (agent *FeedbackAgent) StopMonitorByName(name string) (err error) {
+	name, err = StandardiseNameIdentifier(name)
+	if err != nil {
+		return
+	}
 	mon, err := agent.GetMonitorByName(name)
 	if err != nil {
 		return
@@ -350,8 +382,12 @@ func (agent *FeedbackAgent) StopMonitorByName(name string) (err error) {
 	return
 }
 
-// Deletes a [SystemMonitor] by name from the map.
+// DeleteMonitorByName deletes a SystemMonitor by name from the map.
 func (agent *FeedbackAgent) DeleteMonitorByName(name string) (err error) {
+	name, err = StandardiseNameIdentifier(name)
+	if err != nil {
+		return
+	}
 	err = agent.StopMonitorByName(name)
 	if err != nil {
 		return
@@ -360,7 +396,7 @@ func (agent *FeedbackAgent) DeleteMonitorByName(name string) (err error) {
 	return
 }
 
-// Attempts to load the agent configuration from a JSON file at the
+// LoadOrCreateConfig attempts to load the agent configuration from a JSON file at the
 // configured system paths, and if it cannot do so, sets up the
 // default agent configuration; this will be written to a new JSON
 // file if one currently does not exist.
@@ -401,17 +437,18 @@ func (agent *FeedbackAgent) LoadOrCreateConfig() (err error) {
 		if err != nil {
 			logrus.Error("Error whilst saving config: " + err.Error())
 		}
-		// Clear the error as handled if it we succeeded despite an error
+		// Clear the error as handled if we succeeded despite an error
 		// occurring during the config save.
 		if success {
-			logrus.Info("Configuration file written successfully to '" + fullPath + "'.")
+			logrus.Info("Configuration file written successfully to '" +
+				fullPath + "'.")
 			err = nil
 		}
 	}
 	return
 }
 
-// Checks to see if a file exists at the given directory path and file name.
+// FileExists checks to see if a file exists at the given directory path and file name.
 func FileExists(dirPath string, fileName string) (exists bool) {
 	fullPath := path.Join(dirPath, fileName)
 	_, err := os.Stat(fullPath)
@@ -421,7 +458,7 @@ func FileExists(dirPath string, fileName string) (exists bool) {
 	return
 }
 
-// Attempts to load the agent configuration from a specified path and name.
+// LoadAgentConfig attempts to load the agent configuration from a specified path and name.
 func (agent *FeedbackAgent) LoadAgentConfig(dirPath string, fileName string) (
 	success bool, err error) {
 	fullPath := path.Join(dirPath, fileName)
@@ -444,13 +481,13 @@ func (agent *FeedbackAgent) LoadAgentConfig(dirPath string, fileName string) (
 	return
 }
 
-// Saves the agent configuration to the default system paths.
+// SaveAgentConfigToPaths saves the agent configuration to the default system paths.
 func (agent *FeedbackAgent) SaveAgentConfigToPaths() (success bool, err error) {
 	success, err = agent.SaveAgentConfig(agent.configDir, ConfigFileName)
 	return
 }
 
-// Saves the agent configuration to a specified directory and filename.
+// SaveAgentConfig saves the agent configuration to a specified directory and filename.
 func (agent *FeedbackAgent) SaveAgentConfig(dirPath string, fileName string) (
 	success bool, err error) {
 	// Convert the config into a JSON stream for writing to the new file.
@@ -476,7 +513,7 @@ func (agent *FeedbackAgent) SaveAgentConfig(dirPath string, fileName string) (
 		file, err = os.Create(fullPath)
 		if err != nil {
 			err = errors.New(
-				"Failed to open file, and could " +
+				"Failed to open file for writing, and could " +
 					"not create it: " + fullPath,
 			)
 			return
@@ -505,8 +542,8 @@ func (agent *FeedbackAgent) SaveAgentConfig(dirPath string, fileName string) (
 	return
 }
 
-// Creates a directory if it doesn't exist, and returns an error
-// if creation is unsuccessful.
+// CreateDirectoryIfMissing creates a directory if it doesn't exist, and
+// returns an error if creation is unsuccessful.
 func CreateDirectoryIfMissing(dir string) (err error) {
 	_, err = os.ReadDir(dir)
 	if err != nil {
@@ -518,12 +555,16 @@ func CreateDirectoryIfMissing(dir string) (err error) {
 	return
 }
 
-// Adds a monitor service to this [FeedbackAgent].
-func (agent *FeedbackAgent) AddMonitor(name string, metric string, interval int, params MetricParams,
-	model *StatisticsModel) (err error) {
+// AddMonitor adds a monitor service to this FeedbackAgent.
+func (agent *FeedbackAgent) AddMonitor(name string, metric string, interval int,
+	params MetricParams, shaping bool) (err error) {
 	mon, err := NewSystemMonitor(
-		name, metric,
-		interval, params, model, agent.configDir,
+		name,
+		metric,
+		interval,
+		params,
+		agent.configDir,
+		shaping,
 	)
 	if err != nil {
 		return
@@ -535,19 +576,22 @@ func (agent *FeedbackAgent) AddMonitor(name string, metric string, interval int,
 	return
 }
 
-// Sets the default paths for this [FeedbackAgent]
+// SetDefaultPaths sets the default paths for this FeedbackAgent.
 func (agent *FeedbackAgent) SetDefaultPaths() {
 	agent.configDir = DefaultConfigDir
 	agent.LogDir = DefaultLogDir
 }
 
-// Sets up the agent with a default configuration consisting of one
-// CPU monitor and one HTTP responder, connected together.
+// SetDefaultServiceConfig sets up the agent with a default configuration
+// consisting of one CPU monitor and one HTTP responder, connected together.
 func (agent *FeedbackAgent) SetDefaultServiceConfig() (err error) {
 	agent.InitialiseServiceMaps()
 	err = agent.AddMonitor(
-		"cpu", MetricTypeCPU,
-		CPUMetricMinInterval, nil, nil,
+		"cpu",
+		MetricTypeCPU,
+		CPUMetricMinInterval,
+		nil,
+		false,
 	)
 	if err != nil {
 		logrus.Error("Error: " + err.Error())
@@ -569,16 +613,19 @@ func (agent *FeedbackAgent) SetDefaultServiceConfig() (err error) {
 		"cpu": {
 			Significance: 1.0,
 			MaxValue:     100,
+			Threshold:    0,
 		},
 	}
 	defaultResponder := FeedbackResponder{
-		ResponderName:   "default",
-		ProtocolName:    ProtocolTCP,
-		ListenIPAddress: "*",
-		ListenPort:      "3333",
-		HAProxyCommands: HAPConfigDefault,
-		FeedbackSources: defaultSources,
-		CommandInterval: DefaultCommandInterval,
+		ResponderName:     "default",
+		ProtocolName:      ProtocolTCP,
+		ListenIPAddress:   "*",
+		ListenPort:        "3333",
+		HAProxyCommands:   HAPConfigDefault,
+		FeedbackSources:   defaultSources,
+		CommandInterval:   DefaultCommandInterval,
+		ThresholdScore:    0,
+		ThresholdModeName: ThresholdStringAny,
 	}
 	err = agent.AddResponderObject(&defaultResponder)
 	if err != nil {
@@ -589,13 +636,13 @@ func (agent *FeedbackAgent) SetDefaultServiceConfig() (err error) {
 	return
 }
 
-// Outputs this agent object's configuration as JSON.
+// ConfigToJSON outputs this agent object's configuration as JSON.
 func (agent *FeedbackAgent) ConfigToJSON() (output []byte, err error) {
 	output, err = json.MarshalIndent(agent, "", "    ")
 	return
 }
 
-// Configures the [FeedbackAgent] service from a byte stream of JSON
+// JSONToConfig configures the FeedbackAgent service from a byte stream of JSON
 // configuration data by parsing it.
 func (agent *FeedbackAgent) JSONToConfig(config []byte) (err error) {
 	parsed := FeedbackAgent{}
@@ -613,8 +660,8 @@ func (agent *FeedbackAgent) JSONToConfig(config []byte) (err error) {
 	return
 }
 
-// Sets up file logging given a string specifying the log directory on the
-// local system, disabling it entirely if an empty string is supplied.
+// InitialiseFileLogging sets up file logging given a string specifying the log
+// directory on the local system, disabling it entirely if an empty string is supplied.
 func (agent *FeedbackAgent) InitialiseFileLogging(dir string) (err error) {
 	// Switch off if no path provided.
 	if strings.TrimSpace(dir) == "" {
@@ -636,9 +683,9 @@ func (agent *FeedbackAgent) InitialiseFileLogging(dir string) (err error) {
 	return
 }
 
-// Populates the Monitor and Responder services in this [FeedbackAgent]
-// based on the fields set within the parsed object. Any validation errors
-// will result in an error being returned.
+// configureFromObject populates the Monitor and Responder services in this
+// FeedbackAgent based on the fields set within the parsed object. Any
+// validation errors will result in an error being returned.
 func (agent *FeedbackAgent) configureFromObject(parsed *FeedbackAgent) (err error) {
 	agent.LogDir = parsed.LogDir
 	agent.APIKey = parsed.APIKey
@@ -661,7 +708,7 @@ func (agent *FeedbackAgent) configureFromObject(parsed *FeedbackAgent) (err erro
 	return
 }
 
-// Adds a monitor object to this [FeedbackAgent].
+// AddMonitorObject adds a monitor object to this FeedbackAgent.
 func (agent *FeedbackAgent) AddMonitorObject(monitor *SystemMonitor) (err error) {
 	_, nameExists := agent.Monitors[monitor.Name]
 	if nameExists {
@@ -699,12 +746,12 @@ func (agent *FeedbackAgent) AddResponderObject(responder *FeedbackResponder) (er
 	return
 }
 
-// Creates a Responder associated with a given Monitor, returning an
-// error if the Monitor does not exist.
+// AddResponder creates a Responder associated with a given Monitor,
+// returning an error if the Monitor does not exist.
 func (agent *FeedbackAgent) AddResponder(name string,
 	sources map[string]*FeedbackSource, protocol string, ip string,
-	port string, hapCommands string, enableThreshold bool,
-	hapThreshold int) (err error) {
+	port string, hapCommands string, thresholdMode string,
+	hapThreshold int, logStateChanges bool) (err error) {
 	_, nameExists := agent.Responders[name]
 	if nameExists {
 		err = errors.New(
@@ -716,7 +763,7 @@ func (agent *FeedbackAgent) AddResponder(name string,
 	responder, err := NewResponder(
 		name, sources, protocol,
 		ip, port, hapCommands,
-		enableThreshold, hapThreshold,
+		thresholdMode, hapThreshold,
 		agent,
 	)
 	if err != nil {
@@ -726,11 +773,12 @@ func (agent *FeedbackAgent) AddResponder(name string,
 		)
 		return
 	}
+	responder.LogStateChanges = logStateChanges
 	agent.Responders[name] = responder
 	return
 }
 
-// Clears all configured services from this [FeedbackAgent].
+// InitialiseServiceMaps clears all configured services from this FeedbackAgent.
 func (agent *FeedbackAgent) InitialiseServiceMaps() {
 	agent.Monitors = make(map[string]*SystemMonitor)
 	agent.Responders = make(map[string]*FeedbackResponder)

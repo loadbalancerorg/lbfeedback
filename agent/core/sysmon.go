@@ -31,24 +31,25 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
-// [SystemMonitor] defines a System Metric Monitor that measures a
+// SystemMonitor defines a System Metric Monitor that measures a
 // parameter on the local system concurrently, with these values passed
-// to a [StatisticsModel] for cumulative calculation into relative feedback
+// to a StatisticsModel for cumulative calculation into relative feedback
 // weights.
 type SystemMonitor struct {
 	Name          string           `json:"-"`
 	MetricType    string           `json:"metric-type"`
-	Interval      int              `json:"interval-ms"`
+	Interval      int              `json:"interval-ms,omitempty"`
 	Params        MetricParams     `json:"metric-config,omitempty"`
+	SmartShape    bool             `json:"smart-shape,omitempty"`
 	FilePath      string           `json:"-"`
 	StatsModel    *StatisticsModel `json:"-"`
 	SysMetric     SystemMetric     `json:"-"`
 	LastError     error            `json:"-"`
-	signalChannel chan int         `json:"-"`
-	statusChannel chan int         `json:"-"`
-	runState      bool             `json:"-"`
-	isInitialised bool             `json:"-"`
-	mutex         *sync.Mutex      `json:"-"`
+	signalChannel chan int
+	statusChannel chan int
+	runState      bool
+	isInitialised bool
+	mutex         *sync.Mutex
 }
 
 const (
@@ -56,7 +57,7 @@ const (
 )
 
 func NewSystemMonitor(name string, metric string, interval int,
-	params MetricParams, model *StatisticsModel, filePath string) (
+	params MetricParams, filePath string, shaping bool) (
 	mon *SystemMonitor, err error) {
 	mon = &SystemMonitor{
 		Name:          name,
@@ -66,6 +67,7 @@ func NewSystemMonitor(name string, metric string, interval int,
 		FilePath:      filePath,
 		signalChannel: make(chan int),
 		statusChannel: make(chan int),
+		SmartShape:    shaping,
 	}
 	err = mon.Initialise()
 	return
@@ -91,6 +93,7 @@ func (monitor *SystemMonitor) Initialise() (err error) {
 		monitor.StatsModel = &StatisticsModel{}
 		monitor.StatsModel.SetDefaultParams()
 	}
+	monitor.StatsModel.ShapingEnabled = monitor.SmartShape
 	monitor.SysMetric, err = NewMetric(monitor.MetricType,
 		monitor.Params, monitor.FilePath)
 	if err != nil {
@@ -102,7 +105,7 @@ func (monitor *SystemMonitor) Initialise() (err error) {
 	return
 }
 
-// Launches this [SystemMonitor] as a goroutine, returning any errors
+// Start launches this SystemMonitor as a goroutine, returning any errors
 // that occurred during the initial setup.
 func (monitor *SystemMonitor) Start() (err error) {
 	// Try and launch the goroutine and wait for whether it succeeded or not.
@@ -125,7 +128,7 @@ func (monitor *SystemMonitor) Start() (err error) {
 	return monitor.LastError
 }
 
-// Stops this [SystemMonitor] service.
+// Stop stops this SystemMonitor service.
 func (monitor *SystemMonitor) Stop() (err error) {
 	// Capture the running status within a lock cycle to prevent
 	// a possible race condition with Start().
@@ -145,7 +148,7 @@ func (monitor *SystemMonitor) Stop() (err error) {
 	return
 }
 
-// Restarts this [SystemMonitor] service.
+// Restart restarts this SystemMonitor service.
 func (monitor *SystemMonitor) Restart() (err error) {
 	err = monitor.Stop()
 	if err != nil {
@@ -272,7 +275,7 @@ func (monitor *SystemMonitor) getMetricSample() (value float64, err error) {
 	return
 }
 
-// Returns the current raw value for this monitor thread.
+// CurrentValue returns the current raw value for this monitor thread.
 func (monitor *SystemMonitor) CurrentValue() (result int64) {
 	monitor.mutex.Lock()
 	result = monitor.StatsModel.GetResult()
